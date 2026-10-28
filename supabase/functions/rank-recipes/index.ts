@@ -71,10 +71,22 @@ Deno.serve(async (req: Request) => {
           minutes: z.number(),
           leftovers: z.boolean(),
           ingredients: z.array(z.object({ name: z.string() })),
+          facts: z
+            .object({
+              needsReview: z.boolean(),
+              pendingIngredients: z.array(z.unknown()),
+            })
+            .optional(),
         }),
       )
       .parse(data.recipes)
-      .filter((r) => data.queue.includes(r.id) && !data.blocked.includes(r.id))
+      .filter(
+        (r) =>
+          data.queue.includes(r.id) &&
+          !data.blocked.includes(r.id) &&
+          !r.facts?.needsReview &&
+          !r.facts?.pendingIngredients.length,
+      )
     if (!recipes.length)
       return respond(400, { error: 'Start a shortlist first.' })
     const response = await fetch('https://api.openai.com/v1/responses', {

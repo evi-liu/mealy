@@ -9,6 +9,7 @@ import {
   type State,
 } from './domain'
 import type { HouseholdStore } from './store'
+import { addRecipeFacts, availableRecipeFacts } from './recipeFacts'
 
 export function Bookmarks({
   state,
@@ -21,6 +22,7 @@ export function Bookmarks({
 }) {
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  const available = availableRecipeFacts(state)
   return (
     <section className="bookmarks">
       <h2>From trusted kitchens</h2>
@@ -42,6 +44,21 @@ export function Bookmarks({
           </a>
         ))}
       </div>
+      {available.length > 0 && (
+        <div className="section">
+          <Button
+            className="secondaryButton"
+            onClick={() => void change(addRecipeFacts, { kind: 'recipe' })}
+          >
+            Add recipe facts for {available.length} Tiffy Cooks links
+          </Button>
+          <p className="helper">
+            Ingredients, yields and times only, from checked source snapshots.
+            Review the quantities and your batch capacity before planning.
+            Cooking directions stay on Tiffy Cooks.
+          </p>
+        </div>
+      )}
       <form
         className="pantryForm section"
         onSubmit={async (e) => {
@@ -95,9 +112,9 @@ export function Bookmarks({
           />
         </label>
         <p className="helper">
-          Bookmark only. Automatic import is unavailable until source
-          permissions are verified. No instructions, photos, serving yields or
-          quantities are copied.
+          Saves a link only. Checked factual snapshots are available separately
+          for selected Tiffy Cooks recipes. Full instructions and photos are not
+          copied.
         </p>
         {error && (
           <p className="error" role="alert">
@@ -114,49 +131,58 @@ export function Bookmarks({
           </p>
         )}
       </form>
-      {state.bookmarks.map((bookmark) => (
-        <article className="mealRow" key={bookmark.id}>
-          <div className="mealHeading">
-            <span className="eyebrow">
-              LINK ONLY · {sourceName(bookmark.url)}
-            </span>
-            <Button
-              className="iconButton"
-              aria-label={`Remove bookmark ${bookmark.title}`}
-              onClick={() =>
-                void change(
-                  (s) => ({
-                    ...s,
-                    bookmarks: s.bookmarks.filter(
-                      (item) => item.id !== bookmark.id,
-                    ),
-                  }),
-                  { kind: 'bookmark', recipeId: bookmark.id },
-                )
-              }
+      {state.bookmarks
+        .filter(
+          (bookmark) =>
+            !state.recipes.some(
+              (recipe) =>
+                recipe.source === 'reference' &&
+                recipe.sourceUrl === bookmark.url,
+            ),
+        )
+        .map((bookmark) => (
+          <article className="mealRow" key={bookmark.id}>
+            <div className="mealHeading">
+              <span className="eyebrow">
+                LINK ONLY · {sourceName(bookmark.url)}
+              </span>
+              <Button
+                className="iconButton"
+                aria-label={`Remove bookmark ${bookmark.title}`}
+                onClick={() =>
+                  void change(
+                    (s) => ({
+                      ...s,
+                      bookmarks: s.bookmarks.filter(
+                        (item) => item.id !== bookmark.id,
+                      ),
+                    }),
+                    { kind: 'bookmark', recipeId: bookmark.id },
+                  )
+                }
+              >
+                <X size={17} />
+              </Button>
+            </div>
+            <h3>{bookmark.title}</h3>
+            <p>
+              Yield and ingredients not entered. Not yet eligible for a plan or
+              grocery list.
+            </p>
+            <a
+              href={bookmark.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="secondaryButton"
             >
-              <X size={17} />
+              Read on {sourceName(bookmark.url)}
+              <ArrowUpRight size={16} />
+            </a>
+            <Button className="textButton" onClick={() => onManual(bookmark)}>
+              Enter my own recipe details
             </Button>
-          </div>
-          <h3>{bookmark.title}</h3>
-          <p>
-            Yield and ingredients not entered. Not yet eligible for a plan or
-            grocery list.
-          </p>
-          <a
-            href={bookmark.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="secondaryButton"
-          >
-            Read on {sourceName(bookmark.url)}
-            <ArrowUpRight size={16} />
-          </a>
-          <Button className="textButton" onClick={() => onManual(bookmark)}>
-            Enter my own recipe details
-          </Button>
-        </article>
-      ))}
+          </article>
+        ))}
     </section>
   )
 }

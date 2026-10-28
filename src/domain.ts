@@ -65,22 +65,74 @@ export const ingredientSchema = z.object({
   unit: z.enum(units),
   category: z.enum(categories),
 })
-export const recipeSchema = z.object({
-  id: text,
-  title: text,
-  description: z.string().max(500),
-  servings: z.number().int().min(1).max(30),
-  maxServings: z.number().int().min(2).max(60),
-  minutes: z.number().int().min(1).max(1440),
-  protein: text,
-  leftovers: z.boolean(),
-  potluck: z.boolean(),
-  source: z.enum(['own', 'demo']),
-  sourceUrl: sourceUrlSchema.optional(),
-  imagePath: z.string().max(500).optional(),
-  ingredients: z.array(ingredientSchema).min(1).max(60),
-  instructions: z.array(z.string().trim().min(1).max(2000)).min(1).max(40),
+export const pendingIngredientSchema = z.object({
+  name: text,
+  sourceText: z.string().min(1).max(500),
+  reason: z.string().min(1).max(200),
+  unit: z.enum(units).optional(),
+  category: z.enum(categories),
 })
+const recipeFactsSchema = z.object({
+  retrievedAt: z.iso.datetime(),
+  ingredientLines: z.array(z.string().min(1).max(500)).min(1).max(60),
+  pendingIngredients: z.array(pendingIngredientSchema).max(60),
+  needsReview: z.boolean(),
+})
+export const recipeSchema = z
+  .object({
+    id: text,
+    title: text,
+    description: z.string().max(500),
+    servings: z.number().int().min(1).max(30),
+    maxServings: z.number().int().min(2).max(60),
+    minutes: z.number().int().min(1).max(1440),
+    protein: text,
+    leftovers: z.boolean(),
+    potluck: z.boolean(),
+    source: z.enum(['own', 'demo', 'reference']),
+    sourceUrl: sourceUrlSchema.optional(),
+    facts: recipeFactsSchema.optional(),
+    imagePath: z.string().max(500).optional(),
+    ingredients: z.array(ingredientSchema).min(1).max(60),
+    instructions: z.array(z.string().trim().min(1).max(2000)).max(40),
+  })
+  .superRefine((recipe, ctx) => {
+    if (recipe.source === 'reference') {
+      if (!recipe.sourceUrl || !recipe.facts)
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Imported facts require a source link and provenance.',
+        })
+      if (recipe.instructions.length)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['instructions'],
+          message:
+            'Source-linked recipes keep their directions on the original website.',
+        })
+      if (recipe.facts?.pendingIngredients.length && !recipe.facts.needsReview)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['facts'],
+          message:
+            'Resolve missing ingredient amounts before marking a recipe reviewed.',
+        })
+    } else {
+      if (!recipe.instructions.length)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['instructions'],
+          message: 'Enter at least one cooking instruction.',
+        })
+      if (recipe.facts)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['facts'],
+          message:
+            'Imported facts must be identified as a source-linked recipe.',
+        })
+    }
+  })
 export const settingsSchema = z.object({
   dinners: z.number().int().min(0).max(7),
   kairos: z.boolean(),
@@ -120,6 +172,7 @@ export const stateSchema = z.object({
 })
 export type Recipe = z.infer<typeof recipeSchema>
 export type Ingredient = z.infer<typeof ingredientSchema>
+export type PendingIngredient = z.infer<typeof pendingIngredientSchema>
 export type Settings = z.infer<typeof settingsSchema>
 export type PantryItem = z.infer<typeof pantrySchema>
 export type Slot = z.infer<typeof slotSchema>
@@ -144,6 +197,10 @@ export type EventKind =
   | 'bookmark'
   | 'new_week'
 export type ChangeEvent = { kind: EventKind; recipeId?: string }
+
+export function recipeReady(recipe: Recipe): boolean {
+  return !recipe.facts?.needsReview && !recipe.facts?.pendingIngredients.length
+}
 
 export function weekKey(date = new Date()): string {
   const sunday = new Date(
@@ -226,6 +283,10 @@ export function groceries(
     const recipe = recipes.find((recipe) => recipe.id === slot.recipeId)
     if (!recipe)
       throw new Error('A planned recipe is missing. Rebuild the plan.')
+    if (!recipeReady(recipe))
+      throw new Error(
+        'Review the imported recipe facts before making a grocery list.',
+      )
     for (const ingredient of recipe.ingredients) {
       const quantity = canonical(
         (ingredient.amount * slot.servings) / recipe.servings,
@@ -269,7 +330,7 @@ export function groceries(
 
 export function shortlist(state: State): string[] {
   const available = state.recipes.filter(
-    (recipe) => !state.blocked.includes(recipe.id),
+    (recipe) => recipeReady(recipe) && !state.blocked.includes(recipe.id),
   )
   const score = (recipe: Recipe) =>
     (state.loved.includes(recipe.id) ? 20 : 0) +
@@ -342,6 +403,7 @@ function allocate(
 export function buildPlan(state: State): Slot[] {
   const liked = state.recipes.filter(
     (recipe) =>
+      recipeReady(recipe) &&
       state.decisions[recipe.id] === 'like' &&
       !state.blocked.includes(recipe.id),
   )
@@ -409,6 +471,7 @@ export function swapRecipe(
     throw new Error('Unpin this recipe before swapping.')
   if (
     !recipe ||
+    !recipeReady(recipe) ||
     state.decisions[recipeId] !== 'like' ||
     state.blocked.includes(recipeId) ||
     state.plan.some((s) => s.recipeId === recipeId)
@@ -433,6 +496,9 @@ export function decide(
 ): State {
   if (
     !state.queue.includes(recipeId) ||
+    !state.recipes.some(
+      (recipe) => recipe.id === recipeId && recipeReady(recipe),
+    ) ||
     state.decisions[recipeId] ||
     state.blocked.includes(recipeId)
   )

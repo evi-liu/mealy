@@ -34,6 +34,7 @@ import {
   newWeek,
   normalize,
   recipeSchema,
+  recipeReady,
   shortlist,
   targets,
   undo,
@@ -257,7 +258,7 @@ function Setup({
         <Button
           className="primaryButton"
           disabled={
-            (!state.recipes.length &&
+            (!state.recipes.some(recipeReady) &&
               (settings.dinners > 0 || settings.kairos)) ||
             (settings.dinners === 0 && target.lunches > 0)
           }
@@ -270,6 +271,11 @@ function Setup({
         >
           Start choosing recipes <ArrowRight size={19} />
         </Button>
+        {state.recipes.length > 0 && !state.recipes.some(recipeReady) && (
+          <p className="helper">
+            Review recipe facts in Recipes before choosing meals.
+          </p>
+        )}
       </footer>
     </main>
   )
@@ -361,7 +367,9 @@ function RecipeDetails({
           <Dialog.Description>
             {recipe.source === 'demo'
               ? 'Illustrative demo, not a tested cooking recipe.'
-              : 'Your household recipe.'}
+              : recipe.source === 'reference'
+                ? 'Source-linked recipe facts. Cooking directions remain on the original website.'
+                : 'Your household recipe.'}
           </Dialog.Description>
           <Dialog.Close className="dialogClose" aria-label="Close recipe">
             <X size={20} />
@@ -378,8 +386,9 @@ function RecipeDetails({
               >
                 {sourceName(recipe.sourceUrl)}
               </a>
-              . Recipe details below were entered by your household, not
-              imported.
+              {recipe.source === 'reference'
+                ? '. Factual quantities, yield and timing were imported; no directions or photos were copied.'
+                : '. Recipe details below were entered by your household, not imported.'}
             </p>
           )}
           <p>
@@ -400,12 +409,55 @@ function RecipeDetails({
               </li>
             ))}
           </ul>
-          <h3>Method</h3>
-          <ol>
-            {recipe.instructions.map((step, index) => (
-              <li key={index}>{step}</li>
-            ))}
-          </ol>
+          {recipe.facts?.needsReview && (
+            <>
+              <h3>Review before planning</h3>
+              <p>
+                Confirm the ingredients, your practical batch size and leftover
+                suitability.
+              </p>
+              <ul>
+                {recipe.facts.pendingIngredients.map((item, index) => (
+                  <li key={index}>
+                    {item.sourceText} — {item.reason}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {recipe.facts && (
+            <details>
+              <summary>Original ingredient facts</summary>
+              <p className="helper">
+                Source snapshot:{' '}
+                {new Date(recipe.facts.retrievedAt).toLocaleDateString()}
+              </p>
+              <ul>
+                {recipe.facts.ingredientLines.map((line, index) => (
+                  <li key={index}>{line}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {recipe.source === 'reference' && recipe.sourceUrl ? (
+            <a
+              className="secondaryButton"
+              href={recipe.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Read cooking directions on {sourceName(recipe.sourceUrl)}
+            </a>
+          ) : (
+            <>
+              <h3>Method</h3>
+              <ol>
+                {recipe.instructions.map((step, index) => (
+                  <li key={index}>{step}</li>
+                ))}
+              </ol>
+            </>
+          )}
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
@@ -431,7 +483,10 @@ function Swipe({
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const pointer = useRef<{ id: number; x: number; y: number } | null>(null)
   const pending = state.queue.filter(
-    (id) => !state.decisions[id] && !state.blocked.includes(id),
+    (id) =>
+      !state.decisions[id] &&
+      !state.blocked.includes(id) &&
+      state.recipes.some((recipe) => recipe.id === id && recipeReady(recipe)),
   )
   const recipe = state.recipes.find((r) => r.id === pending[0])
   const liked = Object.values(state.decisions).filter(
@@ -547,7 +602,9 @@ function Swipe({
                   ? 'DEMO RECIPE'
                   : state.loved.includes(recipe.id)
                     ? 'A LOVED FAVORITE'
-                    : 'FROM YOUR KITCHEN'}
+                    : recipe.source === 'reference' && recipe.sourceUrl
+                      ? sourceName(recipe.sourceUrl)
+                      : 'FROM YOUR KITCHEN'}
               </span>
               <h2>{recipe.title}</h2>
               <p>{recipe.description}</p>
@@ -1180,18 +1237,14 @@ function Recipes({
           >
             <Plus size={18} /> Add your recipe
           </Button>
-          <Bookmarks
-            state={state}
-            change={store.change}
-            onManual={(bookmark) => {
-              setFromBookmark(bookmark)
-              setEditing('new')
-            }}
-          />
           {state.recipes.map((recipe) => (
-            <article className="mealRow" key={recipe.id}>
+            <article className="mealRow recipeEntry" key={recipe.id}>
               <span className="eyebrow">
-                {recipe.source === 'demo' ? 'DEMO' : 'YOUR RECIPE'}
+                {recipe.source === 'demo'
+                  ? 'DEMO'
+                  : recipe.source === 'reference' && recipe.sourceUrl
+                    ? sourceName(recipe.sourceUrl)
+                    : 'YOUR RECIPE'}
               </span>
               <Button className="recipeTitle" onClick={() => details(recipe)}>
                 {recipe.title}
@@ -1201,13 +1254,21 @@ function Recipes({
                 Makes {recipe.servings} · max batch {recipe.maxServings} ·{' '}
                 {recipe.minutes} min
               </p>
+              {recipe.facts?.needsReview && (
+                <p className="helper">
+                  Review before planning
+                  {recipe.facts.pendingIngredients.length
+                    ? ` · ${recipe.facts.pendingIngredients.length} ingredient amounts need attention`
+                    : ' · confirm your batch size and leftover suitability'}
+                </p>
+              )}
               <div className="buttonRow">
-                {recipe.source === 'own' && (
+                {recipe.source !== 'demo' && (
                   <Button
                     className="textButton"
                     onClick={() => setEditing(recipe)}
                   >
-                    Edit
+                    {recipe.facts?.needsReview ? 'Review details' : 'Edit'}
                   </Button>
                 )}
                 {state.blocked.includes(recipe.id) && (
@@ -1246,6 +1307,14 @@ function Recipes({
               </div>
             </article>
           ))}
+          <Bookmarks
+            state={state}
+            change={store.change}
+            onManual={(bookmark) => {
+              setFromBookmark(bookmark)
+              setEditing('new')
+            }}
+          />
         </>
       )}
     </main>
