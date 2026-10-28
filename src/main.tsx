@@ -35,6 +35,7 @@ createRoot(document.getElementById('root')!).render(
 )
 const updateSW = registerSW({
   onNeedRefresh() {
+    document.querySelector('.updateNotice')?.remove()
     const notice = document.createElement('button')
     notice.className = 'updateNotice'
     notice.textContent = 'A new Mealy is ready. Tap to update.'

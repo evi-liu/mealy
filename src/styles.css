@@ -562,25 +562,158 @@ label {
   font-size: 12px;
   color: var(--muted);
 }
-.swapLabel {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--muted);
-}
-.swapLabel select {
-  font-size: 14px;
-}
 .selected {
   background: var(--olive);
   color: white;
 }
-.feedback {
-  margin-top: 8px;
+.summaryIcon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--olive);
+  color: white;
+}
+.recipeListHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 24px 2px 10px;
+}
+.recipeListHeading > span:last-child {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--muted);
+  background: #e7ded2;
+  font-size: 11px;
+}
+.plannedRecipe {
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: #fffdf8bd;
+  overflow: hidden;
+}
+.plannedRecipeOpen {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  padding: 10px 13px 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+.recipeThumb {
+  width: 62px;
+  height: 62px;
+  border-radius: 12px;
+  gap: 0;
+}
+.recipeThumb .illustratedPlate {
+  height: 44px;
+  width: 44px;
+  border-width: 4px;
+  box-shadow: 3px 5px 8px #3d352b18;
+}
+.recipeThumb small {
+  position: absolute;
+  bottom: 1px;
+  font-size: 8px;
+}
+.plannedRecipeCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.recipeNumber {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.plannedRecipeCopy strong {
+  font:
+    18px/1.15 Georgia,
+    serif;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.plannedRecipeCopy small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.planRecipeActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 3px 12px;
+}
+.planRecipeActions .textButton {
+  font-size: 11px;
+}
+.pinRecipe {
+  color: var(--muted);
+}
+.pinRecipe.pinned {
+  color: var(--olive);
 }
 .groceryGroup {
   margin: 22px 0;
+}
+.groceryUnits {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 22px;
+}
+.unitToggle {
+  display: flex;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #eee6d9;
+}
+.unitToggle button {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.unitToggle button[aria-pressed='true'] {
+  color: var(--white);
+  background: var(--ink);
+}
+.groceryAmount {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pantryQuickAdd {
+  display: flex;
+  gap: 8px;
+  margin: 20px 0 22px;
+}
+.pantryQuickAdd input {
+  min-width: 0;
+  flex: 1;
+  padding: 14px 16px;
+  border-radius: 14px;
+}
+.pantryQuickAdd button {
+  flex: 0 0 50px;
+  border-radius: 14px;
+  background: var(--ink);
+  color: white;
 }
 .groceryGroup h2 {
   font-size: 22px;
@@ -631,9 +764,23 @@ label {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  min-height: 65px;
+  gap: 11px;
+  min-height: 55px;
   border-bottom: 1px solid var(--line);
+}
+.pantryDot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: #c59c61;
+}
+.pantryName {
+  flex: 1;
+}
+.pantryRemove {
+  background: transparent;
+  color: var(--muted);
 }
 .pantryItem:last-child {
   border-bottom: 0;

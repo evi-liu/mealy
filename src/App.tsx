@@ -7,6 +7,7 @@ import {
   ArrowRight,
   BookOpen,
   Check,
+  ChevronRight,
   CookingPot,
   Heart,
   Home,
@@ -29,14 +30,13 @@ import {
   decide,
   displayAmount,
   groceries,
+  groceryQuantity,
   newWeek,
   normalize,
   recipeSchema,
   shortlist,
-  swapRecipe,
   targets,
   undo,
-  units,
   weekKey,
   type Recipe,
   type Settings,
@@ -52,6 +52,7 @@ import {
 } from './store'
 import { RecipeForm } from './RecipeForm'
 import { Bookmarks } from './Bookmarks'
+import { useGroceryUnits } from './useGroceryUnits'
 
 const tabs = ['plan', 'groceries', 'pantry', 'recipes'] as const
 type Tab = (typeof tabs)[number]
@@ -292,9 +293,11 @@ function Setup({
 function RecipeArt({
   recipe,
   household,
+  compact = false,
 }: {
   recipe: Recipe
   household?: string | null
+  compact?: boolean
 }) {
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
@@ -321,7 +324,9 @@ function RecipeArt({
     }
   }, [recipe.imagePath, household])
   return (
-    <div className={`recipeArt tone${recipe.title.length % 4}`}>
+    <div
+      className={`recipeArt tone${recipe.title.length % 4}${compact ? ' recipeThumb' : ''}`}
+    >
       {url ? (
         <img
           src={url}
@@ -334,9 +339,11 @@ function RecipeArt({
       ) : (
         <>
           <div className="illustratedPlate">
-            <CookingPot size={65} strokeWidth={1} />
+            <CookingPot size={compact ? 24 : 65} strokeWidth={1} />
           </div>
-          <small>{error || 'A little kitchen illustration'}</small>
+          {(!compact || error) && (
+            <small>{error || 'A little kitchen illustration'}</small>
+          )}
         </>
       )}
     </div>
@@ -691,17 +698,19 @@ function Plan({
   change,
   details,
   openGroceries,
+  household,
 }: {
   state: State
   change: HouseholdStore['change']
   details: (recipe: Recipe, servings?: number) => void
   openGroceries: () => void
+  household?: string | null
 }) {
   const target = targets(state.settings)
   return (
-    <main className="screen">
+    <main className="screen planScreen">
       <Header
-        eyebrow={`WEEK OF ${state.week}`}
+        eyebrow={`WEEK OF ${new Date(`${state.week}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).toUpperCase()}`}
         title="Your week"
         action={
           <Button
@@ -712,17 +721,17 @@ function Plan({
               })
             }
           >
-            Edit setup
+            Edit
           </Button>
         }
       />
       <section className="summaryBanner">
-        <Check size={24} />
+        <span className="summaryIcon">
+          <Check size={22} />
+        </span>
         <div>
           <strong>
-            {state.confirmed
-              ? 'Ready for your kitchen.'
-              : 'A good week, on paper.'}
+            {state.confirmed ? 'Week sorted.' : 'Your week, coming together.'}
           </strong>
           <p>
             {state.settings.dinners} dinners · {target.lunches} lunch servings
@@ -730,31 +739,38 @@ function Plan({
           </p>
         </div>
       </section>
-      <p className="helper">
-        Chosen only from your likes, balancing variety, effort, ingredient
-        overlap and pantry stock. Pin what you love, then swap or rebuild.
-      </p>
+      <div className="recipeListHeading">
+        <span className="eyebrow">RECIPES YOU'RE COOKING</span>
+        <span>{state.plan.length}</span>
+      </div>
       <div className="mealList">
         {state.plan.map((slot, index) => {
           const recipe = state.recipes.find((r) => r.id === slot.recipeId)!
-          const swaps = state.recipes.filter((r) => {
-            try {
-              swapRecipe(state, index, r.id)
-              return true
-            } catch {
-              return false
-            }
-          })
           return (
-            <article className="mealRow" key={`${slot.role}-${index}`}>
-              <div className="mealHeading">
-                <span className="eyebrow">
-                  {slot.role === 'kairos'
-                    ? 'KAIROS · POTLUCK'
-                    : `RECIPE ${index + 1}`}
+            <article className="plannedRecipe" key={`${slot.role}-${index}`}>
+              <Button
+                className="plannedRecipeOpen"
+                aria-label={`View ${recipe.title}`}
+                onClick={() => details(recipe, slot.servings)}
+              >
+                <RecipeArt recipe={recipe} household={household} compact />
+                <span className="plannedRecipeCopy">
+                  <span className="recipeNumber">
+                    {recipe.source === 'demo' ? 'DEMO · ' : ''}
+                    {slot.role === 'kairos' ? 'KAIROS' : `RECIPE ${index + 1}`}
+                  </span>
+                  <strong>{recipe.title}</strong>
+                  <small>
+                    {slot.role === 'kairos'
+                      ? `Potluck · ${slot.servings} servings`
+                      : `2 dinner + ${slot.servings - 2} lunch servings`}
+                  </small>
                 </span>
+                <ChevronRight size={18} />
+              </Button>
+              <div className="planRecipeActions">
                 <Button
-                  className={`iconButton ${slot.pinned ? 'selected' : ''}`}
+                  className={`textButton pinRecipe ${slot.pinned ? 'pinned' : ''}`}
                   aria-label={`${slot.pinned ? 'Unpin' : 'Pin'} ${recipe.title}`}
                   aria-pressed={slot.pinned}
                   onClick={() =>
@@ -769,72 +785,8 @@ function Plan({
                     )
                   }
                 >
-                  <Pin size={18} />
-                </Button>
-              </div>
-              <Button
-                className="recipeTitle"
-                onClick={() => details(recipe, slot.servings)}
-              >
-                {recipe.title}
-                <ArrowRight size={17} />
-              </Button>
-              <p>
-                {slot.servings} servings
-                {slot.role === 'dinner'
-                  ? ` · 2 dinner + ${slot.servings - 2} lunch`
-                  : ' · separate from home meals'}{' '}
-                · {(slot.servings / recipe.servings).toFixed(2)}x batch
-              </p>
-              <label className="swapLabel">
-                Swap with another like
-                <select
-                  aria-label={`Swap ${recipe.title}`}
-                  value=""
-                  disabled={slot.pinned || !swaps.length}
-                  onChange={(e) =>
-                    void change(
-                      (s) => ({
-                        ...s,
-                        plan: swapRecipe(s, index, e.target.value),
-                        confirmed: false,
-                        checked: [],
-                      }),
-                      { kind: 'swap', recipeId: e.target.value },
-                    )
-                  }
-                >
-                  <option value="">
-                    {slot.pinned
-                      ? 'Pinned'
-                      : swaps.length
-                        ? 'Choose a recipe'
-                        : 'No viable swaps yet'}
-                  </option>
-                  {swaps.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="buttonRow feedback">
-                <Button
-                  className="textButton"
-                  disabled={state.cooked.includes(recipe.id)}
-                  onClick={() =>
-                    void change(
-                      (s) => ({
-                        ...s,
-                        cooked: [...new Set([...s.cooked, recipe.id])],
-                      }),
-                      { kind: 'cooked', recipeId: recipe.id },
-                    )
-                  }
-                >
-                  {state.cooked.includes(recipe.id)
-                    ? 'Cooked ✓'
-                    : 'We cooked this'}
+                  <Pin size={14} />
+                  {slot.pinned ? 'Pinned' : 'Pin'}
                 </Button>
                 <Button
                   className="textButton"
@@ -849,7 +801,12 @@ function Plan({
                     )
                   }
                 >
-                  <Heart size={15} />
+                  <Heart
+                    size={15}
+                    fill={
+                      state.loved.includes(recipe.id) ? 'currentColor' : 'none'
+                    }
+                  />
                   {state.loved.includes(recipe.id) ? 'Loved' : 'We loved this'}
                 </Button>
               </div>
@@ -857,10 +814,6 @@ function Plan({
           )
         })}
       </div>
-      <p className="helper">
-        Freeze later-week lunch portions rather than keeping all leftovers
-        refrigerated for the entire week.
-      </p>
       <div className="buttonRow">
         <Button
           className="secondaryButton"
@@ -913,6 +866,11 @@ function Groceries({
   state: State
   change: HouseholdStore['change']
 }) {
+  const {
+    system: groceryUnits,
+    setSystem,
+    error: unitError,
+  } = useGroceryUnits()
   if (!state.confirmed)
     return (
       <main className="screen">
@@ -935,6 +893,29 @@ function Groceries({
         title="Groceries"
         action={<span className="countBadge">{left} left</span>}
       />
+      <div className="groceryUnits">
+        <span className="eyebrow">UNITS</span>
+        <div
+          className="unitToggle"
+          role="group"
+          aria-label="Grocery unit system"
+        >
+          {(['us', 'metric'] as const).map((system) => (
+            <Button
+              key={system}
+              aria-pressed={groceryUnits === system}
+              onClick={() => setSystem(system)}
+            >
+              {system === 'metric' ? 'Metric' : 'US kitchen'}
+            </Button>
+          ))}
+        </div>
+      </div>
+      {unitError && (
+        <p className="error" role="alert">
+          {unitError}
+        </p>
+      )}
       {items.length === 0 && (
         <p className="empty">No meals this week, so nothing to shop for.</p>
       )}
@@ -969,16 +950,22 @@ function Groceries({
                     />
                     <span>
                       <strong>
-                        {displayAmount(item.buy)} {item.unit} {item.name}
+                        {item.name}{' '}
+                        <span className="groceryAmount">
+                          · {groceryQuantity(item.buy, item.unit, groceryUnits)}
+                        </span>
                       </strong>
-                      <small>
-                        Need {displayAmount(item.required)} {item.unit}
-                        {item.owned > 0
-                          ? ` · pantry ${displayAmount(item.owned)} ${item.unit}`
-                          : ''}
-                        {item.staple ? ' · staple on hand: check quantity' : ''}
-                        {item.buy === 0 ? ' · covered by measured stock' : ''}
-                      </small>
+                      {(item.owned > 0 || item.staple) && (
+                        <small>
+                          {item.owned > 0
+                            ? `Need ${groceryQuantity(item.required, item.unit, groceryUnits)} · pantry ${groceryQuantity(item.owned, item.unit, groceryUnits)}`
+                            : ''}
+                          {item.staple
+                            ? `${item.owned > 0 ? ' · ' : ''}staple on hand: check quantity`
+                            : ''}
+                          {item.buy === 0 ? ' · covered by measured stock' : ''}
+                        </small>
+                      )}
                     </span>
                   </label>
                 )
@@ -990,7 +977,9 @@ function Groceries({
       <p className="helper">
         Measured stock is subtracted once per ingredient and compatible unit.
         Staples are reminders, never assumed to cover an unknown quantity.
-        Shopping checks do not automatically change your pantry.
+        Shopping checks do not automatically change your pantry. US kitchen
+        units use 240 ml cups, 15 ml tablespoons and 5 ml teaspoons. Weight is
+        never converted to cups.
       </p>
     </main>
   )
@@ -1003,122 +992,82 @@ function Pantry({
   state: State
   change: HouseholdStore['change']
 }) {
-  const [kind, setKind] = useState<'quantity' | 'staple'>('quantity')
   return (
     <main className="screen">
-      <Header eyebrow="YOUR KITCHEN" title="Pantry" />
-      <p className="screenLead">
-        Add measured stock to subtract it from groceries, or mark a staple as on
-        hand and check its quantity when shopping.
-      </p>
+      <Header
+        eyebrow="YOUR KITCHEN"
+        title="Pantry"
+        action={
+          <span className="countBadge">{state.pantry.length} ingredients</span>
+        }
+      />
+      <p className="screenLead">What's already in your kitchen.</p>
       <form
-        className="pantryForm section"
+        className="pantryQuickAdd"
         onSubmit={async (e) => {
           e.preventDefault()
           const form = e.currentTarget
           const data = new FormData(form)
           if (
             await change(
-              (s) => ({
-                ...s,
-                checked: [],
-                pantry: [
-                  ...s.pantry,
-                  {
-                    id: crypto.randomUUID(),
-                    name: normalize(String(data.get('name'))),
-                    kind,
-                    amount: kind === 'staple' ? 1 : Number(data.get('amount')),
-                    unit: units.find((u) => u === data.get('unit')) ?? 'each',
-                  },
-                ],
-              }),
+              (s) => {
+                const name = normalize(String(data.get('name')))
+                if (s.pantry.some((item) => normalize(item.name) === name))
+                  throw new Error('That ingredient is already in your pantry.')
+                return {
+                  ...s,
+                  pantry: [
+                    ...s.pantry,
+                    {
+                      id: crypto.randomUUID(),
+                      name,
+                      kind: 'staple',
+                      amount: 1,
+                      unit: 'each',
+                    },
+                  ],
+                }
+              },
               { kind: 'pantry' },
             )
           )
             form.reset()
         }}
       >
-        <label>
-          Ingredient
-          <input
-            name="name"
-            required
-            maxLength={200}
-            list="ingredient-names"
-            placeholder="e.g. rice"
-          />
-        </label>
-        <datalist id="ingredient-names">
-          {[
-            ...new Set(
-              state.recipes.flatMap((r) =>
-                r.ingredients.map((i) => normalize(i.name)),
-              ),
-            ),
-          ]
-            .sort()
-            .map((name) => (
-              <option key={name}>{name}</option>
-            ))}
-        </datalist>
-        <label>
-          Track as
-          <select
-            value={kind}
-            onChange={(e) =>
-              setKind(e.target.value === 'staple' ? 'staple' : 'quantity')
-            }
-          >
-            <option value="quantity">Measured inventory</option>
-            <option value="staple">Staple on hand (quantity unknown)</option>
-          </select>
-        </label>
-        {kind === 'quantity' && (
-          <div className="formGrid">
-            <label>
-              Amount
-              <input
-                name="amount"
-                type="number"
-                min="0.001"
-                max="100000"
-                step="any"
-                required
-              />
-            </label>
-            <label>
-              Unit
-              <select name="unit">
-                {units.map((unit) => (
-                  <option key={unit}>{unit}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-        )}
-        <Button className="primaryButton" type="submit">
-          <Plus size={18} /> Add stock
+        <input
+          aria-label="Add pantry ingredient"
+          name="name"
+          required
+          maxLength={200}
+          placeholder="Add an ingredient..."
+          autoComplete="off"
+          enterKeyHint="done"
+        />
+        <Button
+          className="iconButton"
+          type="submit"
+          aria-label="Add pantry ingredient"
+        >
+          <Plus size={20} />
         </Button>
       </form>
       <section className="pantryList">
         {state.pantry.length === 0 && (
-          <p className="helper">
-            Your pantry is empty. Nothing is assumed to be on hand.
-          </p>
+          <p className="helper">Add your first ingredient above.</p>
         )}
         {state.pantry.map((item) => (
           <div className="pantryItem" key={item.id}>
-            <span>
+            <span className="pantryDot" aria-hidden="true" />
+            <span className="pantryName">
               <strong>{item.name}</strong>
-              <small>
-                {item.kind === 'staple'
-                  ? 'Staple · check quantity'
-                  : `${displayAmount(item.amount)} ${item.unit}`}
-              </small>
+              {item.kind === 'quantity' && (
+                <small>
+                  {displayAmount(item.amount)} {item.unit}
+                </small>
+              )}
             </span>
             <Button
-              className="iconButton"
+              className="iconButton pantryRemove"
               aria-label={`Remove ${item.name}`}
               onClick={() =>
                 void change(
@@ -1424,6 +1373,7 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
                   change={store.change}
                   details={details}
                   openGroceries={() => navigate('groceries')}
+                  household={store.household}
                 />
               ))}
             {tab === 'groceries' && (

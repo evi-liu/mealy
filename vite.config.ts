@@ -40,6 +40,7 @@ export default defineConfig({
         ],
       },
       workbox: {
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
         navigateFallback: 'index.html',
         // Never put OAuth responses or private Supabase data into a shared cache.

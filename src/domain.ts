@@ -124,6 +124,7 @@ export type Settings = z.infer<typeof settingsSchema>
 export type PantryItem = z.infer<typeof pantrySchema>
 export type Slot = z.infer<typeof slotSchema>
 export type State = z.infer<typeof stateSchema>
+export type UnitSystem = 'us' | 'metric'
 export type EventKind =
   | 'settings'
   | 'like'
@@ -209,7 +210,7 @@ export type Grocery = {
   key: string
   name: string
   category: Ingredient['category']
-  unit: string
+  unit: 'g' | 'ml' | 'each'
   required: number
   owned: number
   buy: number
@@ -471,3 +472,36 @@ export function newWeek(state: State): State {
 
 export const displayAmount = (value: number) =>
   Number((Math.ceil((value - 1e-8) * 10) / 10).toFixed(1)).toLocaleString()
+
+export function groceryQuantity(
+  value: number,
+  unit: Grocery['unit'],
+  system: UnitSystem,
+): string {
+  let displayUnit: Ingredient['unit'] = unit
+  let decimals = 1
+  if (system === 'metric') {
+    if (value >= 1000 && unit !== 'each') {
+      displayUnit = unit === 'g' ? 'kg' : 'l'
+      decimals = 3
+    }
+  } else if (unit === 'g') {
+    displayUnit = value >= conversions.lb[1] ? 'lb' : 'oz'
+    decimals = 2
+  } else if (unit === 'ml') {
+    displayUnit =
+      value >= conversions.cup[1]
+        ? 'cup'
+        : value >= conversions.tbsp[1]
+          ? 'tbsp'
+          : 'tsp'
+    decimals = 2
+  }
+  const converted = value / conversions[displayUnit][1]
+  const precision = 10 ** decimals
+  const rounded = Math.max(
+    0,
+    Math.ceil((converted - 1e-10) * precision) / precision,
+  )
+  return `${rounded.toLocaleString(undefined, { maximumFractionDigits: decimals })} ${displayUnit}`
+}

@@ -31,11 +31,25 @@ test('setup, shortlist, plan, pantry and durable grocery checks', async ({
     page.getByRole('heading', { name: 'What sounds good?' }),
   ).toBeVisible()
   await page.getByRole('button', { name: 'Build my week' }).click()
-  await expect(page.locator('.mealRow')).toHaveCount(2)
+  await expect(page.locator('.plannedRecipe')).toHaveCount(2)
+  await expect(page.locator('.plannedRecipe .recipeThumb')).toHaveCount(2)
+  for (const row of await page.locator('.plannedRecipe').all()) {
+    expect((await row.boundingBox())!.height).toBeLessThanOrEqual(150)
+  }
   await expect(page.locator('.summaryBanner')).toContainText('8 lunch servings')
   const pin = page.getByRole('button', { name: /^Pin / }).first()
   await pin.click()
-  await expect(page.locator('.swapLabel select').first()).toBeDisabled()
+  await expect(
+    page.getByRole('button', { name: /^Unpin / }).first(),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.planScreen select')).toHaveCount(0)
+  await expect(page.getByText('Your lunches start at dinner.')).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: 'We cooked this' }),
+  ).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'We loved this' })).toHaveCount(
+    2,
+  )
   await page
     .getByRole('button', { name: 'Confirm & make grocery list' })
     .click()
@@ -48,9 +62,12 @@ test('setup, shortlist, plan, pantry and durable grocery checks', async ({
   await page.getByRole('button', { name: 'Try the demo' }).click()
   await expect(page.locator('.groceryItem input').first()).toBeChecked()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
-  await page.getByLabel('Ingredient', { exact: true }).fill('olive oil')
-  await page.getByLabel('Track as').selectOption('staple')
-  await page.getByRole('button', { name: 'Add stock' }).click()
+  await page
+    .getByRole('textbox', { name: 'Add pantry ingredient' })
+    .fill('olive oil')
+  await expect(page.getByRole('combobox', { name: 'Track as' })).toHaveCount(0)
+  await expect(page.getByRole('spinbutton')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Add pantry ingredient' }).click()
   await page.getByRole('button', { name: 'Groceries', exact: true }).click()
   await expect(page.getByText(/staple on hand: check quantity/)).toBeVisible()
   await expect(
@@ -267,7 +284,6 @@ test('production PWA has scoped assets, hash routing and an offline public shell
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready
   })
-  await page.reload()
   await page.waitForFunction(() => navigator.serviceWorker.controller !== null)
   await context.setOffline(true)
   await page.reload()
