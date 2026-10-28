@@ -115,11 +115,9 @@ function Toggle({
 function Setup({
   state,
   change,
-  openRecipes,
 }: {
   state: State
   change: HouseholdStore['change']
-  openRecipes: () => void
 }) {
   const settings = state.settings
   const target = targets(settings)
@@ -240,19 +238,6 @@ function Setup({
           </div>
         )}
       </section>
-      {state.recipes.length === 0 && (
-        <section className="empty">
-          <BookOpen size={30} />
-          <h2>Your kitchen starts here</h2>
-          <p>
-            Add your go-to recipes first. Nothing in your live household is demo
-            data.
-          </p>
-          <Button className="secondaryButton" onClick={openRecipes}>
-            Add a recipe
-          </Button>
-        </section>
-      )}
       <footer className="setupFooter">
         <div className="planMath">
           <span>This week's target</span>
@@ -1353,11 +1338,7 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
           >
             {tab === 'plan' &&
               (state.phase === 'setup' ? (
-                <Setup
-                  state={state}
-                  change={store.change}
-                  openRecipes={() => navigate('recipes')}
-                />
+                <Setup state={state} change={store.change} />
               ) : state.phase === 'swipe' ? (
                 <Swipe
                   state={state}

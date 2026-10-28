@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { initialState } from '../src/domain'
 
 async function start(page: Page) {
   await page.goto('./')
@@ -9,6 +10,32 @@ async function like(page: Page, count: number) {
   for (let i = 0; i < count; i++)
     await page.getByRole('button', { name: 'Appealing this week' }).click()
 }
+test('empty recipe library keeps setup compact and recipe entry accessible', async ({
+  page,
+}) => {
+  await page.addInitScript(
+    (state) => localStorage.setItem('mealy-demo-v1', JSON.stringify(state)),
+    initialState([]),
+  )
+  await start(page)
+  await expect(
+    page.getByRole('heading', { name: 'Plan your week' }),
+  ).toBeVisible()
+  await expect(page.getByText('Your kitchen starts here')).toHaveCount(0)
+  await expect(
+    page.getByText(/Nothing in your live household is demo/),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: 'Start choosing recipes' }),
+  ).toBeDisabled()
+  await page.getByRole('button', { name: 'Recipes', exact: true }).click()
+  await expect(
+    page.getByRole('button', { name: 'Add your recipe' }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Save link bookmark' }),
+  ).toBeVisible()
+})
 test('setup, shortlist, plan, pantry and durable grocery checks', async ({
   page,
 }) => {
