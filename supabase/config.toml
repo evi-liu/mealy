@@ -1,0 +1,15 @@
+project_id = "mealy"
+
+[auth]
+site_url = "http://localhost:5173/mealy/"
+additional_redirect_urls = ["http://127.0.0.1:5173/mealy/", "https://evi-liu.github.io/mealy/"]
+enable_signup = true
+
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+redirect_uri = ""
+
+[functions.rank-recipes]
+verify_jwt = false
