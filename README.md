@@ -42,7 +42,7 @@ Icons are committed build inputs; `npm run icons` regenerates them from the orig
 
 ## Configure the live two-person household
 
-1. Create your own Supabase project. Do not send secrets in chat or commit them. Apply `supabase/migrations/202610280001_household.sql` with the SQL editor, or link the Supabase CLI project and run `supabase db push`.
+1. Create your own Supabase project. Do not send secrets in chat or commit them. Apply the files in `supabase/migrations/` in filename order with the SQL editor, or link the Supabase CLI project and run `supabase db push`.
 2. In Google Cloud, create a Web OAuth client with `openid`, `email` and `profile` scopes. Configure the Supabase Google provider using that client ID/secret. Follow [Supabase's official Google guide](https://supabase.com/docs/guides/auth/social-sign-in/auth-google). Add the Supabase callback URL shown by the provider configuration to Google's authorized redirect URIs.
 3. Configure Supabase Auth's site URL and redirect allowlist for `https://evi-liu.github.io/mealy/`, and your local URL when developing. The browser uses PKCE and returns to the base path, before hash-tab navigation. Prefer exact URLs, not broad wildcard redirects.
 4. Run `supabase/setup-household.sql` **once**, replacing the two example emails privately in the SQL editor. This creates a single empty household and two slots. Do not commit the edited file. Set the Google consent screen audience/test users appropriately while testing. Only confirmed Google identities matching the server-side allowlist can read/write the household; signing in by itself grants no access.
@@ -50,6 +50,8 @@ Icons are committed build inputs; `npm run icons` regenerates them from the orig
 6. Launch the app and continue with Google from both phones. Add your own recipes; then make a shared plan. Changes should appear on the second phone within four seconds or when it regains focus.
 
 Changing/removing a `household_access` email revokes its data access on subsequent database/Storage requests. Previously signed image URLs can remain usable for their one-hour lifetime. The application cannot enumerate or modify invitations, self-join a household, directly update its document, or forge feedback actors. Authorization depends on `auth.uid()` and the confirmed server-side Google account record, not a public household ID.
+
+An administrator can add a third sign-in account after applying `202610290001_third_household_account.sql`: insert its lowercase email into `household_access` with the existing household ID and slot `3`. Do not rerun household setup or overwrite an occupied slot. While Google OAuth is in Testing, also add the email to the Google Cloud project's Audience test users. Keep actual addresses out of Git. Login account count does not change the two-person serving calculations.
 
 No Supabase service-role key is needed by the frontend **or** the ranking function. Storage is a private 5 MB JPEG/PNG/WebP bucket with household-path RLS. Replaced/uncommitted uploads are cleaned up when possible, and failures are surfaced. After a browser/network interruption, administrators may need to remove orphaned uploads.
 

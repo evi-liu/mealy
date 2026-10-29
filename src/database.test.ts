@@ -8,6 +8,7 @@ const householdB = '10000000-0000-0000-0000-000000000002'
 const alice = '20000000-0000-0000-0000-000000000001'
 const bob = '20000000-0000-0000-0000-000000000002'
 const outsider = '20000000-0000-0000-0000-000000000003'
+const third = '20000000-0000-0000-0000-000000000004'
 let db: PGlite
 
 beforeAll(async () => {
@@ -43,8 +44,18 @@ beforeAll(async () => {
     insert into auth.users values
       ('${alice}','one@example.test',now(),'{"provider":"google"}'),
       ('${bob}','two@example.test',now(),'{"provider":"google"}'),
+      ('${third}','third@example.test',now(),'{"provider":"google"}'),
       ('${outsider}','outsider@example.test',now(),'{"provider":"google"}');
   `)
+  await db.exec(
+    await readFile(
+      new URL(
+        '../supabase/migrations/202610290001_third_household_account.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  )
   for (const id of [householdA, householdB])
     await db.query(
       'insert into public.household_state(household_id,data) values ($1,$2)',
@@ -70,8 +81,16 @@ async function asUser<T>(
   }
 }
 describe('actual migration on embedded PostgreSQL', () => {
-  it('allows exactly the two provisioned Google accounts into their household', async () => {
-    for (const user of [alice, bob])
+  it('preserves existing access and permits an administrator-provisioned third account', async () => {
+    await asUser(third, async () => {
+      expect(
+        (await db.query('select * from public.household_state')).rows,
+      ).toEqual([])
+    })
+    await db.exec(
+      `insert into public.household_access values ('${householdA}',3,'third@example.test')`,
+    )
+    for (const user of [alice, bob, third])
       await asUser(user, async () => {
         const result = await db.query<{ id: string }>(
           'select public.my_household() as id',
@@ -82,7 +101,7 @@ describe('actual migration on embedded PostgreSQL', () => {
       })
     await expect(
       db.exec(
-        `insert into public.household_access values ('${householdA}',3,'third@example.test')`,
+        `insert into public.household_access values ('${householdA}',4,'fourth@example.test')`,
       ),
     ).rejects.toThrow()
   })
