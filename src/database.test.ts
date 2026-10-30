@@ -101,6 +101,7 @@ beforeAll(async () => {
   for (const file of [
     '202610300005_catalog_directions.sql',
     '202610300006_household_sources.sql',
+    '202610300007_household_switching.sql',
   ])
     await db.exec(
       await readFile(
@@ -379,10 +380,6 @@ describe('actual migration on embedded PostgreSQL', () => {
       await expect(
         db.query("select public.create_household('Second')"),
       ).rejects.toThrow('already in a household')
-      // The only member cannot leave and orphan the household's data.
-      await expect(db.query('select public.leave_household()')).rejects.toThrow(
-        'only member',
-      )
       await db.query("select public.rename_household('Cozy corner')")
       await expect(db.query('select * from public.profiles')).rejects.toThrow(
         'permission denied',
@@ -473,22 +470,17 @@ describe('actual migration on embedded PostgreSQL', () => {
     })
   })
 
-  it('declines, withdraws, refuses joining a second household and lets members leave', async () => {
+  it('declines and withdraws requests, and lets members leave', async () => {
     const carolsHousehold = await asUser(carol, () =>
       db.query<{ id: string }>('select public.my_household() as id'),
     )
-    // Alice asks Carol, who already has a household: she must leave first.
+    // Alice asks Carol, who declines and keeps her own household.
     const toCarol = await asUser(alice, () =>
       db.query<{ id: string }>('select public.request_member($1) as id', [
         carol,
       ]),
     )
     await asUser(carol, async () => {
-      await expect(
-        db.query('select public.respond_to_request($1, true)', [
-          toCarol.rows[0].id,
-        ]),
-      ).rejects.toThrow('Leave your current household')
       await db.query('select public.respond_to_request($1, false)', [
         toCarol.rows[0].id,
       ])
@@ -581,6 +573,76 @@ describe('actual migration on embedded PostgreSQL', () => {
         (await db.query('select id from public.catalog_recipes')).rows,
       ).toEqual([{ id: 'tiffycooks:test' }])
     })
+  })
+  it('switching households deactivates an emptied one, which its owner can bring back', async () => {
+    const myHousehold = () =>
+      db
+        .query<{ id: string | null }>('select public.my_household() as id')
+        .then((r) => r.rows[0].id)
+    const carols = await asUser(carol, myHousehold)
+    await asUser(carol, () =>
+      db.query("select public.add_source('https://example.com/')"),
+    )
+    const request = await asUser(alice, () =>
+      db.query<{ id: string }>('select public.request_member($1) as id', [
+        carol,
+      ]),
+    )
+    await asUser(carol, async () => {
+      // Carol is her household's only member: accepting deactivates it.
+      await db.query('select public.respond_to_request($1, true)', [
+        request.rows[0].id,
+      ])
+      expect(await myHousehold()).toBe(householdA)
+      const inactive = await db.query<{ id: string; name: string }>(
+        'select id, name from public.my_inactive_households()',
+      )
+      expect(inactive.rows).toEqual([{ id: carols, name: 'Cozy corner' }])
+    })
+    // Requests from a deactivated household are no longer offered.
+    await db.exec(
+      `insert into public.household_requests(household_id, user_id, requested_by)
+       values ('${carols}', '${dave}', '${carol}')`,
+    )
+    await asUser(dave, async () =>
+      expect(
+        (await db.query('select * from public.my_requests()')).rows,
+      ).toEqual([]),
+    )
+    // Only the owner can bring it back.
+    await asUser(dave, () =>
+      expect(
+        db.query('select public.reactivate_household($1)', [carols]),
+      ).rejects.toThrow('Household not found'),
+    )
+    await asUser(carol, async () => {
+      await db.query('select public.reactivate_household($1)', [carols])
+      expect(await myHousehold()).toBe(carols)
+      expect(
+        (await db.query('select * from public.my_inactive_households()')).rows,
+      ).toEqual([])
+      // Its data and sources came back with it.
+      expect(
+        (await db.query('select * from public.household_state')).rows,
+      ).toHaveLength(1)
+      expect(
+        (
+          await db.query<{ domain: string }>(
+            'select domain from public.household_sources order by domain',
+          )
+        ).rows.map((r) => r.domain),
+      ).toContain('example.com')
+      // Leaving as the last member deactivates rather than deletes.
+      await db.query('select public.leave_household()')
+      expect(await myHousehold()).toBeNull()
+      expect(
+        (await db.query('select id from public.my_inactive_households()')).rows,
+      ).toEqual([{ id: carols }])
+    })
+    // Alice's household kept its other members when Carol moved on.
+    await asUser(alice, async () =>
+      expect(await myHousehold()).toBe(householdA),
+    )
   })
   it('revokes access immediately when an allowlist entry is removed', async () => {
     await db.exec(

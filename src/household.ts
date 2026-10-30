@@ -140,6 +140,14 @@ export const householdApi = {
   addSource: (url: string) => call<string>('add_source', { p_url: url }),
   removeSource: (domain: string) =>
     call<null>('remove_source', { p_domain: domain }),
+  /** Deactivated households this person owns and can switch back to. */
+  async inactive(): Promise<{ id: string; name: string }[]> {
+    const rows = await call<{ id: string; name: string }[]>(
+      'my_inactive_households',
+    )
+    return rows ?? []
+  },
+  reactivate: (id: string) => call<null>('reactivate_household', { p_id: id }),
   request: (userId: string) =>
     call<string>('request_member', { p_user: userId }),
   withdraw: (id: string) => call<null>('withdraw_request', { p_id: id }),

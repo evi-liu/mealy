@@ -80,10 +80,20 @@ function MeCard({ me }: { me: Me | null }) {
 }
 
 /** Join requests waiting for this person's answer. They never expire. */
+/** What switching away from the current household will do to it. */
+async function switchingAway(): Promise<string | null> {
+  const current = await householdApi.overview()
+  if (!current) return null
+  return current.members.length === 1
+    ? `You're the only member of ${current.name}, so it will be deactivated, not deleted. If you own it, you can switch back to it from Profile.`
+    : `You'll leave ${current.name}; its other members keep it.`
+}
+
 function RequestsInbox({ onJoined }: { onJoined: () => void }) {
   const [requests, setRequests] = useState<JoinRequest[] | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const confirm = useConfirm()
   const load = useCallback(() => {
     householdApi
       .mine()
@@ -95,6 +105,18 @@ function RequestsInbox({ onJoined }: { onJoined: () => void }) {
     setBusy(true)
     setError('')
     try {
+      if (accept) {
+        const away = await switchingAway()
+        if (
+          away &&
+          !(await confirm({
+            title: `Join ${request.householdName}?`,
+            body: away,
+            confirm: 'Join',
+          }))
+        )
+          return
+      }
       await householdApi.respond(request.id, accept)
       load()
       if (accept) onJoined()
@@ -348,7 +370,10 @@ function HouseholdCard({ onLeft }: { onLeft: () => void }) {
           if (
             (await confirm({
               title: `Leave ${household.name}?`,
-              body: "You'll lose access to its week, recipes and pantry until someone adds you back.",
+              body:
+                household.members.length === 1
+                  ? "You're its only member, so it will be deactivated, not deleted. If you own it, you can switch back to it from Profile."
+                  : "You'll lose access to its week, recipes and pantry until someone adds you back.",
               confirm: 'Leave household',
             })) &&
             (await act(() => householdApi.leave()))
@@ -367,6 +392,72 @@ function SignOut({ live, exit }: { live: boolean; exit: () => void }) {
     <Button className="secondaryButton signOut" onClick={exit}>
       <LogOut size={17} /> {live ? 'Sign out' : 'Leave demo'}
     </Button>
+  )
+}
+
+/** Deactivated households this person owns, ready to switch back to. */
+function InactiveHouseholds({ onSwitched }: { onSwitched: () => void }) {
+  const [households, setHouseholds] = useState<{ id: string; name: string }[]>(
+    [],
+  )
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const confirm = useConfirm()
+  useEffect(() => {
+    householdApi
+      .inactive()
+      .then(setHouseholds)
+      .catch((e) => setError(message(e)))
+  }, [])
+  if (!households.length && !error) return null
+  return (
+    <section className="profileCard" aria-labelledby="inactive-heading">
+      <h2 id="inactive-heading">Your other households</h2>
+      <p className="helper">
+        Deactivated households you own, kept with their recipes, pantry and
+        week. Switching back moves you out of your current one.
+      </p>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {households.map((household) => (
+        <div className="memberRow" key={household.id}>
+          <span className="memberName">
+            <strong>{household.name}</strong>
+            <small>Deactivated</small>
+          </span>
+          <Button
+            className="textButton"
+            disabled={busy}
+            onClick={async () => {
+              setError('')
+              setBusy(true)
+              try {
+                const away = await switchingAway()
+                if (
+                  !(await confirm({
+                    title: `Switch back to ${household.name}?`,
+                    body: away ?? 'It will be active again with all its data.',
+                    confirm: 'Switch back',
+                  }))
+                )
+                  return
+                await householdApi.reactivate(household.id)
+                onSwitched()
+              } catch (e) {
+                setError(message(e))
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            Switch back
+          </Button>
+        </div>
+      ))}
+    </section>
   )
 }
 
@@ -505,6 +596,7 @@ export function ProfileScreen({
           <RequestsInbox onJoined={onHouseholdChanged} />
           <HouseholdCard onLeft={onHouseholdChanged} />
           <SourcesCard />
+          <InactiveHouseholds onSwitched={onHouseholdChanged} />
         </>
       ) : (
         <section className="profileCard">
@@ -541,6 +633,7 @@ export function Onboarding({
       </header>
       <MeCard me={me} />
       <RequestsInbox onJoined={onJoined} />
+      <InactiveHouseholds onSwitched={onJoined} />
       <section className="profileCard" aria-labelledby="create-heading">
         <h2 id="create-heading">Start a household</h2>
         <p className="helper">
