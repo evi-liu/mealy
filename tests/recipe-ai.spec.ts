@@ -50,13 +50,19 @@ test('AI drafts a new recipe into the form, refines it, and saves only after rev
   // Nothing is stored until the household confirms the review, and the
   // floating back button asks before discarding the draft.
   const back = page.getByRole('button', { name: 'Back to recipes' })
-  page.once('dialog', (prompt) => void prompt.dismiss())
   await back.click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Keep editing' })
+    .click()
   await expect(page.getByLabel('Recipe name', { exact: true })).toHaveValue(
     'Our bean soup',
   )
-  page.once('dialog', (prompt) => void prompt.accept())
   await back.click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Leave', exact: true })
+    .click()
   await expect(page.getByRole('button', { name: 'Add recipe' })).toBeVisible()
   await expect(
     page.getByRole('button', { name: 'Our bean soup', exact: true }),
@@ -178,11 +184,18 @@ test('closing an unsaved remix asks first', async ({ page }) => {
   await dialog.getByRole('button', { name: 'Remix recipe' }).click()
   await expect(dialog.getByText('Unsaved remix · AI-drafted')).toBeVisible()
 
-  page.once('dialog', (prompt) => void prompt.dismiss())
   await dialog.getByRole('button', { name: 'Close recipe' }).click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Keep editing' })
+    .click()
   await expect(dialog).toBeVisible()
-  page.once('dialog', (prompt) => void prompt.accept())
+  await expect(dialog.getByText('Unsaved remix · AI-drafted')).toBeVisible()
   await dialog.getByRole('button', { name: 'Close recipe' }).click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Discard' })
+    .click()
   await expect(dialog).toHaveCount(0)
 })
 
@@ -210,8 +223,11 @@ test('a remix can replace a household recipe after review', async ({
     .getByRole('textbox', { name: 'Remix this recipe' })
     .fill('Less oil')
   await dialog.getByRole('button', { name: 'Remix recipe' }).click()
-  page.once('dialog', (prompt) => void prompt.accept())
   await dialog.getByRole('button', { name: 'Replace original' }).click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Replace original' })
+    .click()
   await expect(
     page.getByRole('heading', { name: 'Review your remix' }),
   ).toBeVisible()

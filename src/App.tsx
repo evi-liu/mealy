@@ -10,7 +10,6 @@ import {
   CookingPot,
   Heart,
   Home,
-  LogOut,
   Minus,
   PackageOpen,
   Pencil,
@@ -19,6 +18,7 @@ import {
   RotateCcw,
   ShoppingBasket,
   Sparkles,
+  UserRound,
   Users,
   X,
 } from 'lucide-react'
@@ -40,6 +40,7 @@ import {
   targets,
   toggleGroceryCheck,
   toggleLoved,
+  sourceUrlSchema,
   undo,
   weekKey,
   adoptQueued,
@@ -56,12 +57,22 @@ import { Bookmarks } from './Bookmarks'
 import { useGroceryUnits } from './useGroceryUnits'
 import { useFlingCard } from './motion/useFlingCard'
 import { flyToDeck } from './motion/flyToDeck'
-import { liveRecipeAi, type RecipeAi } from './ai/recipeAi'
+import { liveRecipeAi, type RecipeAi, type RecipeDraft } from './ai/recipeAi'
 import { RecipeArt } from './RecipeArt'
 import { unsaved, useCatalog, type Catalog } from './catalog'
+import { Onboarding, ProfileScreen } from './Profile'
+import { householdApi } from './household'
+import { useConfirm } from './confirm'
 import { LovedButton, RecipeDetails, type RemixSave } from './RecipeDetails'
 
-const tabs = ['plan', 'groceries', 'pantry', 'recipes'] as const
+const tabs = ['plan', 'groceries', 'pantry', 'recipes', 'profile'] as const
+const tabLabels: Record<(typeof tabs)[number], string> = {
+  plan: 'Plan',
+  groceries: 'Groceries',
+  pantry: 'Pantry',
+  recipes: 'Recipes',
+  profile: 'Profile',
+}
 type Tab = (typeof tabs)[number]
 function initialTab(): Tab {
   return tabs.find((tab) => `#${tab}` === window.location.hash) ?? 'plan'
@@ -1048,7 +1059,15 @@ function Pantry({
   )
 }
 
-const sourcesLabel = 'TIFFY COOKS & THE WOKS OF LIFE'
+const sourcesLabel = 'YOUR RECIPE SOURCES'
+
+/**
+ * Kitchen favorites: what the household added, reviewed or remixed, plus
+ * anything loved. Catalog copies and unreviewed imports live in the stack.
+ */
+const isFavorite = (recipe: Recipe, state: State) =>
+  state.loved.includes(recipe.id) ||
+  (!recipe.catalogId && !recipe.facts?.needsReview)
 
 /** The shared catalog: counts, plus imports waiting for a quick review. */
 function CatalogSection({
@@ -1061,18 +1080,25 @@ function CatalogSection({
   onReview: (recipe: Recipe) => void
 }) {
   const [shown, setShown] = useState(6)
-  if (!catalog.loaded || (!catalog.ready.length && !catalog.review.length))
+  // Older source-fact imports the household never reviewed wait here too.
+  const unreviewed = state.recipes.filter(
+    (r) => r.facts?.needsReview && !isFavorite(r, state),
+  )
+  if (
+    !unreviewed.length &&
+    (!catalog.loaded || (!catalog.ready.length && !catalog.review.length))
+  )
     return catalog.error ? <p className="error">{catalog.error}</p> : null
   const ready = unsaved(catalog.ready, state).length
-  const review = unsaved(catalog.review, state)
+  const review = [...unreviewed, ...unsaved(catalog.review, state)]
   return (
     <section className="catalogSection" aria-labelledby="catalog-heading">
       <span className="eyebrow">FROM {sourcesLabel}</span>
       <h2 id="catalog-heading">Recipe catalog</h2>
       <p className="helper">
         {ready} ready for your swipe stack · {review.length} need a quick
-        review. New recipes arrive weekly. Only ingredient facts are imported;
-        directions stay on the source sites. Ready imports start
+        review. New recipes arrive weekly from the sites in Profile → Recipe
+        sources, with their ingredients and directions. Ready imports start
         leftover-friendly with a maximum batch of twice the published yield;
         adjust any recipe after you like it.
       </p>
@@ -1126,6 +1152,33 @@ function Recipes({
   // phone edited it meanwhile.
   const [baseline, setBaseline] = useState<Recipe | null>(null)
   const [reviewingRemix, setReviewingRemix] = useState(false)
+  const [imported, setImported] = useState<{
+    recipe: RecipeDraft
+    notes: string[]
+    sourceUrl: string
+  }>()
+  async function importLink(url: string): Promise<string | void> {
+    const link = sourceUrlSchema.safeParse(url)
+    if (!link.success) return 'Paste a full https:// link to a recipe page.'
+    try {
+      const result = await ai.draft({
+        instruction: 'Import the recipe from this page.',
+        url: link.data,
+        history: [],
+      })
+      if ('declined' in result) return result.declined
+      setFromBookmark(undefined)
+      setBaseline(null)
+      setImported({
+        recipe: result.recipe,
+        notes: result.notes.map((note) => note.text),
+        sourceUrl: link.data,
+      })
+      setEditing('new')
+    } catch (error) {
+      return message(error)
+    }
+  }
   const [remixSlot, setRemixSlot] = useState<RemixSave['slot']>()
   useEffect(() => {
     if (!remix) return
@@ -1213,12 +1266,13 @@ function Recipes({
         <RecipeForm
           key={
             typeof editing === 'string'
-              ? `${editing}-${fromBookmark?.id ?? ''}`
+              ? `${editing}-${fromBookmark?.id ?? ''}-${imported?.sourceUrl ?? ''}`
               : editing.id
           }
           recipe={editing === 'new' ? undefined : editing}
           bookmark={fromBookmark}
-          ai={editing === 'new' && !fromBookmark ? ai : undefined}
+          ai={fromBookmark ? undefined : ai}
+          imported={editing === 'new' ? imported : undefined}
           heading={reviewingRemix ? 'Review your remix' : undefined}
           celebrate={
             editing === 'new' ||
@@ -1233,6 +1287,7 @@ function Recipes({
           }
           onCancel={() => {
             setRemixSlot(undefined)
+            setImported(undefined)
             setEditing(null)
             setFromBookmark(undefined)
             setBaseline(null)
@@ -1253,85 +1308,90 @@ function Recipes({
           >
             <Plus size={18} aria-hidden="true" /> Add recipe
           </Button>
-          {state.recipes.map((recipe) => (
-            <article className="mealRow recipeEntry" key={recipe.id}>
-              <span className="eyebrow">
-                {recipe.aiDraft
-                  ? 'AI-DRAFTED'
-                  : recipe.source === 'reference' && recipe.sourceUrl
-                    ? sourceName(recipe.sourceUrl)
-                    : 'YOUR RECIPE'}
-              </span>
-              <Button className="recipeTitle" onClick={() => details(recipe)}>
-                {recipe.title}
-                <ArrowRight size={17} />
-              </Button>
-              <p>
-                Makes {recipe.servings} · max batch {recipe.maxServings} ·{' '}
-                {recipe.minutes} min
-              </p>
-              {recipe.facts?.needsReview && (
-                <p className="helper">
-                  Review before planning
-                  {recipe.facts.pendingIngredients.length
-                    ? ` · ${recipe.facts.pendingIngredients.length} ingredient amounts need attention`
-                    : ' · confirm your batch size and leftover suitability'}
-                </p>
-              )}
-              <div className="buttonRow">
-                <Button
-                  className="textButton"
-                  onClick={() => {
-                    setBaseline(recipe)
-                    setEditing(recipe)
-                  }}
-                >
-                  {recipe.facts?.needsReview ? 'Review details' : 'Edit'}
+          {state.recipes
+            .filter((r) => isFavorite(r, state))
+            .map((recipe) => (
+              <article className="mealRow recipeEntry" key={recipe.id}>
+                <span className="eyebrow">
+                  {recipe.aiDraft
+                    ? 'AI-DRAFTED'
+                    : recipe.source === 'reference' && recipe.sourceUrl
+                      ? sourceName(recipe.sourceUrl)
+                      : 'YOUR RECIPE'}
+                </span>
+                <Button className="recipeTitle" onClick={() => details(recipe)}>
+                  {recipe.title}
+                  <ArrowRight size={17} />
                 </Button>
-                {state.blocked.includes(recipe.id) && (
+                <p>
+                  Makes {recipe.servings} · max batch {recipe.maxServings} ·{' '}
+                  {recipe.minutes} min
+                </p>
+                {recipe.facts?.needsReview && (
+                  <p className="helper">
+                    Review before planning
+                    {recipe.facts.pendingIngredients.length
+                      ? ` · ${recipe.facts.pendingIngredients.length} ingredient amounts need attention`
+                      : ' · confirm your batch size and leftover suitability'}
+                  </p>
+                )}
+                <div className="buttonRow">
                   <Button
                     className="textButton"
-                    onClick={() =>
-                      void store.change(
-                        (s) => ({
-                          ...s,
-                          blocked: s.blocked.filter((id) => id !== recipe.id),
-                        }),
-                        { kind: 'unblock', recipeId: recipe.id },
-                      )
-                    }
+                    onClick={() => {
+                      setBaseline(recipe)
+                      setEditing(recipe)
+                    }}
                   >
-                    Recommend again
+                    {recipe.facts?.needsReview ? 'Review details' : 'Edit'}
                   </Button>
-                )}
-                <LovedButton
-                  loved={state.loved.includes(recipe.id)}
-                  onToggle={() => {
-                    const { event } = toggleLoved(state, recipe.id)
-                    return store.change(
-                      (s) => toggleLoved(s, recipe.id).state,
-                      event,
-                    )
-                  }}
-                />
-              </div>
-            </article>
-          ))}
+                  {state.blocked.includes(recipe.id) && (
+                    <Button
+                      className="textButton"
+                      onClick={() =>
+                        void store.change(
+                          (s) => ({
+                            ...s,
+                            blocked: s.blocked.filter((id) => id !== recipe.id),
+                          }),
+                          { kind: 'unblock', recipeId: recipe.id },
+                        )
+                      }
+                    >
+                      Recommend again
+                    </Button>
+                  )}
+                  <LovedButton
+                    loved={state.loved.includes(recipe.id)}
+                    onToggle={() => {
+                      const { event } = toggleLoved(state, recipe.id)
+                      return store.change(
+                        (s) => toggleLoved(s, recipe.id).state,
+                        event,
+                      )
+                    }}
+                  />
+                </div>
+              </article>
+            ))}
           <CatalogSection
             state={state}
             catalog={catalog}
             onReview={(recipe) => {
               setFromBookmark(undefined)
-              setBaseline(null)
+              // A saved import is edited in place; a catalog one is added.
+              setBaseline(state.recipes.find((r) => r.id === recipe.id) ?? null)
               setEditing(recipe)
             }}
           />
           <Bookmarks
             state={state}
             change={store.change}
+            onImport={importLink}
             onManual={(bookmark) => {
               setFromBookmark(bookmark)
               setBaseline(null)
+              setImported(undefined)
               setEditing('new')
             }}
           />
@@ -1354,6 +1414,15 @@ function Kitchen({ exit }: { exit: () => void }) {
   const clearRemix = useCallback(() => setRemix(null), [])
   const ai = liveRecipeAi
   const catalog = useCatalog()
+  const confirm = useConfirm()
+  useEffect(() => {
+    // Keeps name and photo current so household members can find this person.
+    void householdApi
+      .syncProfile()
+      .catch((error) =>
+        store.reportError(`Could not sync your profile: ${message(error)}`),
+      )
+  }, [store.reportError])
   const headingRef = useRef<HTMLDivElement>(null)
   function navigate(tab: Tab) {
     window.location.hash = tab
@@ -1376,23 +1445,20 @@ function Kitchen({ exit }: { exit: () => void }) {
     setDetail({ recipe, servings, slot })
   return (
     <div className="appShell" ref={headingRef}>
-      <div className="modeBar live">
-        <span>
-          {store.connected
-            ? 'Your shared kitchen · sync every 4s'
-            : 'Connection unavailable · changes need internet'}
-        </span>
-        <Button aria-label="Sign out" onClick={exit}>
-          <LogOut size={15} />
-        </Button>
-      </div>
+      {!store.connected && (
+        <div className="modeBar">
+          <span>Connection unavailable · changes need internet</span>
+        </div>
+      )}
       {store.error && (
         <div role="alert" className="errorBanner">
           <p>{store.error}</p>
           <Button onClick={store.retry}>Retry connection</Button>
         </div>
       )}
-      {!state ? (
+      {store.noHousehold ? (
+        <Onboarding onJoined={store.reload} exit={exit} />
+      ) : !state ? (
         <div className="screen">
           <h1>
             {store.error ? 'Kitchen unavailable' : 'Opening your kitchen...'}
@@ -1435,6 +1501,9 @@ function Kitchen({ exit }: { exit: () => void }) {
               <Groceries state={state} change={store.change} />
             )}
             {tab === 'pantry' && <Pantry state={state} change={store.change} />}
+            {tab === 'profile' && (
+              <ProfileScreen onHouseholdChanged={store.reload} exit={exit} />
+            )}
             {tab === 'recipes' && (
               <Recipes
                 store={store}
@@ -1445,30 +1514,40 @@ function Kitchen({ exit }: { exit: () => void }) {
                 catalog={catalog}
               />
             )}
-            <div className="weekAction">
-              <Button
-                className="textButton"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      'Start a fresh week? This clears weekly choices, plan and shopping checks, but keeps recipes, pantry and explicit preferences.',
-                    )
-                  ) {
-                    void store
-                      .change(newWeek, { kind: 'new_week' })
-                      .then((saved) => {
-                        if (saved) navigate('plan')
+            {tab !== 'profile' && (
+              <div className="weekAction">
+                <Button
+                  className="textButton"
+                  onClick={async () => {
+                    if (
+                      await confirm({
+                        title: 'Start a fresh week?',
+                        body: 'This clears weekly choices, the plan and shopping checks, but keeps recipes, pantry and loved recipes.',
+                        confirm: 'Start fresh',
                       })
-                  }
-                }}
-              >
-                Start a fresh week
-              </Button>
-            </div>
+                    ) {
+                      void store
+                        .change(newWeek, { kind: 'new_week' })
+                        .then((saved) => {
+                          if (saved) navigate('plan')
+                        })
+                    }
+                  }}
+                >
+                  Start a fresh week
+                </Button>
+              </div>
+            )}
           </fieldset>
           <nav className="bottomNav" aria-label="Main navigation">
             {tabs.map((item, index) => {
-              const Icon = [Home, ShoppingBasket, PackageOpen, BookOpen][index]
+              const Icon = [
+                Home,
+                ShoppingBasket,
+                PackageOpen,
+                BookOpen,
+                UserRound,
+              ][index]
               return (
                 <Button
                   key={item}
@@ -1477,15 +1556,7 @@ function Kitchen({ exit }: { exit: () => void }) {
                   onClick={() => navigate(item)}
                 >
                   <Icon size={21} />
-                  <span>
-                    {item === 'plan'
-                      ? 'Plan'
-                      : item === 'groceries'
-                        ? 'Groceries'
-                        : item === 'pantry'
-                          ? 'Pantry'
-                          : 'Recipes'}
-                  </span>
+                  <span>{tabLabels[item]}</span>
                 </Button>
               )
             })}

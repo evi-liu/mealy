@@ -26,9 +26,8 @@ test('unauthorized accounts cannot fall back to local recipes', async ({
 }) => {
   kitchen.authorized = false
   await page.goto('./')
-  await expect(page.getByRole('alert')).toContainText('not authorized')
   await expect(
-    page.getByRole('heading', { name: 'Kitchen unavailable' }),
+    page.getByRole('heading', { name: 'Set up your kitchen' }),
   ).toBeVisible()
   await expect(page.getByRole('button', { name: /demo/i })).toHaveCount(0)
   await expect(page.locator('.recipeEntry')).toHaveCount(0)
@@ -55,8 +54,9 @@ test('failed live saves show an error without local success or household storage
 test('signing out closes the real kitchen', async ({ page }) => {
   await page.goto('./')
   await expect(
-    page.getByText('Your shared kitchen · sync every 4s'),
+    page.getByRole('heading', { name: 'Plan your week' }),
   ).toBeVisible()
+  await page.getByRole('button', { name: 'Profile', exact: true }).click()
   await page.getByRole('button', { name: 'Sign out' }).click()
   await expect(
     page.getByRole('button', { name: 'Continue with Google' }),

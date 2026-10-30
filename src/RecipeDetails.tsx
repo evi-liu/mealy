@@ -14,6 +14,7 @@ import {
 } from './domain'
 import type { HouseholdStore } from './store'
 import { RecipeArt } from './RecipeArt'
+import { useConfirm } from './confirm'
 import { useGroceryUnits } from './useGroceryUnits'
 import { flyToDeck } from './motion/flyToDeck'
 import { Body, spring } from './motion/engine'
@@ -160,10 +161,16 @@ export function RecipeDetails({
   const pinned = planned?.recipeId === recipe.id && planned.pinned
   const loved = state.loved.includes(recipe.id)
 
-  function requestClose() {
+  const confirm = useConfirm()
+  async function requestClose() {
     if (
       remixes.length &&
-      !window.confirm('Discard this remix? It has not been saved.')
+      !(await confirm({
+        title: 'Discard this remix?',
+        body: 'It has not been saved.',
+        confirm: 'Discard',
+        cancel: 'Keep editing',
+      }))
     )
       return
     close()
@@ -240,11 +247,14 @@ export function RecipeDetails({
       return
     }
     if (
-      !window.confirm(
-        recipe.source === 'reference'
-          ? 'Replace the original with this remix? It becomes your own recipe: the imported source facts are dropped, and the source link is kept.'
-          : 'Replace the original recipe with this remix?',
-      )
+      !(await confirm({
+        title: 'Replace the original with this remix?',
+        body:
+          recipe.source === 'reference'
+            ? 'It becomes your own recipe: the imported source facts are dropped, and the source link is kept.'
+            : undefined,
+        confirm: 'Replace original',
+      }))
     )
       return
     // Reference facts belong to the imported recipe, not the remix.
@@ -263,7 +273,7 @@ export function RecipeDetails({
     <Dialog.Root
       open
       onOpenChange={(open) => {
-        if (!open) requestClose()
+        if (!open) void requestClose()
       }}
     >
       <Dialog.Portal>
@@ -276,7 +286,7 @@ export function RecipeDetails({
               : recipe.aiDraft
                 ? 'Your household recipe, drafted with AI and reviewed by you. Not kitchen-tested.'
                 : recipe.source === 'reference'
-                  ? 'Source-linked recipe facts. Cooking directions remain on the original website.'
+                  ? 'Imported from a recipe source, with its ingredients and directions.'
                   : 'Your household recipe.'}
           </Dialog.Description>
           <Dialog.Close className="dialogClose" aria-label="Close recipe">
@@ -389,7 +399,7 @@ export function RecipeDetails({
                   {sourceName(recipe.sourceUrl)}
                 </a>
                 {recipe.source === 'reference'
-                  ? '. Factual quantities, yield and timing were imported; no directions or photos were copied.'
+                  ? '. Ingredients, yield, time and directions were imported; photos were not.'
                   : '. Recipe details below were entered by your household, not imported.'}
               </p>
             )}
@@ -527,24 +537,27 @@ export function RecipeDetails({
                   ))}
                 </ol>
               </>
-            ) : recipe.source === 'reference' && recipe.sourceUrl ? (
+            ) : (
+              recipe.instructions.length > 0 && (
+                <>
+                  <h3>Method</h3>
+                  <ol>
+                    {recipe.instructions.map((step, index) => (
+                      <li key={index}>{step}</li>
+                    ))}
+                  </ol>
+                </>
+              )
+            )}
+            {recipe.sourceUrl && (
               <a
                 className="secondaryButton"
                 href={recipe.sourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Read cooking directions on {sourceName(recipe.sourceUrl)}
+                View the original on {sourceName(recipe.sourceUrl)}
               </a>
-            ) : (
-              <>
-                <h3>Method</h3>
-                <ol>
-                  {recipe.instructions.map((step, index) => (
-                    <li key={index}>{step}</li>
-                  ))}
-                </ol>
-              </>
             )}
           </div>
           {pending && (

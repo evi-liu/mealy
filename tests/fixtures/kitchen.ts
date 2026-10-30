@@ -68,6 +68,26 @@ export const test = base.extend<{ kitchen: Kitchen }>({
         }
         if (url.pathname === '/rest/v1/rpc/my_household')
           return json(kitchen.authorized ? household : null)
+        if (url.pathname === '/rest/v1/rpc/sync_profile') return json(null)
+        if (url.pathname === '/rest/v1/household_sources') return json([])
+        if (
+          [
+            '/rest/v1/rpc/my_requests',
+            '/rest/v1/rpc/household_sent_requests',
+          ].includes(url.pathname)
+        )
+          return json([])
+        if (url.pathname === '/rest/v1/rpc/household_overview')
+          return json([
+            {
+              household_id: household,
+              name: 'Test kitchen',
+              email: user.email,
+              display_name: 'Test cook',
+              avatar_url: null,
+              is_me: true,
+            },
+          ])
         if (url.pathname === '/rest/v1/household_state')
           return json({ data: kitchen.state, version: kitchen.version })
         if (url.pathname === '/rest/v1/catalog_recipes') return json([])

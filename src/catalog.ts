@@ -12,15 +12,16 @@ import {
 import { parseIngredientFact } from './recipeFacts'
 import { supabase } from './store'
 
-// Rows written by the catalog-import Edge Function: source facts only.
+// Rows written by the catalog-import Edge Function for the household's sources.
 export const catalogRowSchema = z.object({
   id: z.string().min(1).max(200),
-  source: z.enum(['tiffycooks.com', 'thewoksoflife.com']),
+  source: z.string().min(1).max(200),
   url: sourceUrlSchema,
   title: z.string().min(1).max(200),
   servings: z.number().int().nullable(),
   minutes: z.number().int().nullable(),
   ingredient_lines: z.array(z.string().max(500)).max(60),
+  instructions: z.array(z.string()).default([]),
   categories: z.array(z.string()).default([]),
   published_at: z.string().nullable(),
   fetched_at: z.string(),
@@ -94,7 +95,10 @@ export function catalogRecipe(row: CatalogRow): CatalogEntry | null {
     source: 'reference',
     sourceUrl: row.url,
     catalogId: row.id,
-    instructions: [],
+    instructions: row.instructions
+      .map((step) => step.trim().slice(0, 2000))
+      .filter(Boolean)
+      .slice(0, 40),
     ingredients,
     facts: {
       retrievedAt: new Date(row.fetched_at).toISOString(),
@@ -158,7 +162,7 @@ export function useCatalog(): Catalog {
     void supabase
       .from('catalog_recipes')
       .select(
-        'id,source,url,title,servings,minutes,ingredient_lines,categories,published_at,fetched_at',
+        'id,source,url,title,servings,minutes,ingredient_lines,instructions,categories,published_at,fetched_at',
       )
       .order('published_at', { ascending: false, nullsFirst: false })
       .limit(1000)

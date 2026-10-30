@@ -9,6 +9,9 @@ const alice = '20000000-0000-0000-0000-000000000001'
 const bob = '20000000-0000-0000-0000-000000000002'
 const outsider = '20000000-0000-0000-0000-000000000003'
 const third = '20000000-0000-0000-0000-000000000004'
+const carol = '20000000-0000-0000-0000-000000000005'
+const dave = '20000000-0000-0000-0000-000000000006'
+const erin = '20000000-0000-0000-0000-000000000007'
 let db: PGlite
 
 beforeAll(async () => {
@@ -18,7 +21,7 @@ beforeAll(async () => {
     create role authenticated;
     create schema auth;
     create schema storage;
-    create table auth.users(id uuid primary key, email text, email_confirmed_at timestamptz, raw_app_meta_data jsonb);
+    create table auth.users(id uuid primary key, email text, email_confirmed_at timestamptz, raw_app_meta_data jsonb, raw_user_meta_data jsonb);
     create function auth.uid() returns uuid language sql stable as $$
       select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
     $$;
@@ -42,10 +45,13 @@ beforeAll(async () => {
     insert into public.households(id) values ('${householdA}'), ('${householdB}');
     insert into public.household_access values ('${householdA}',1,'one@example.test'), ('${householdA}',2,'two@example.test');
     insert into auth.users values
-      ('${alice}','one@example.test',now(),'{"provider":"google"}'),
-      ('${bob}','two@example.test',now(),'{"provider":"google"}'),
-      ('${third}','third@example.test',now(),'{"provider":"google"}'),
-      ('${outsider}','outsider@example.test',now(),'{"provider":"google"}');
+      ('${alice}','one@example.test',now(),'{"provider":"google"}',null),
+      ('${bob}','two@example.test',now(),'{"provider":"google"}',null),
+      ('${third}','third@example.test',now(),'{"provider":"google"}',null),
+      ('${outsider}','outsider@example.test',now(),'{"provider":"google"}',null),
+      ('${carol}','carol@gmail.com',now(),'{"provider":"google"}','{"full_name":"Carol Cook","avatar_url":"https://example.test/c.png"}'),
+      ('${dave}','dave@gmail.com',now(),'{"provider":"google"}','{"full_name":"Dave Dumpling"}'),
+      ('${erin}','erin@gmail.com',null,'{"provider":"google"}','{"full_name":"Erin Unconfirmed"}');
   `)
   await db.exec(
     await readFile(
@@ -83,6 +89,25 @@ beforeAll(async () => {
       'utf8',
     ),
   )
+  await db.exec(
+    await readFile(
+      new URL(
+        '../supabase/migrations/202610300004_households.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  )
+  for (const file of [
+    '202610300005_catalog_directions.sql',
+    '202610300006_household_sources.sql',
+  ])
+    await db.exec(
+      await readFile(
+        new URL(`../supabase/migrations/${file}`, import.meta.url),
+        'utf8',
+      ),
+    )
   await db.exec(`
     insert into public.catalog_recipes(id, source, url, title, servings, minutes, ingredient_lines)
     values ('tiffycooks:test', 'tiffycooks.com', 'https://tiffycooks.com/test/', 'Test noodles', 4, 20, '["1 tbsp soy sauce"]');
@@ -132,7 +157,7 @@ describe('actual migration on embedded PostgreSQL', () => {
       })
     await expect(
       db.exec(
-        `insert into public.household_access values ('${householdA}',4,'fourth@example.test')`,
+        `insert into public.household_access(household_id, slot, email) values ('${householdA}',9,'fourth@example.test')`,
       ),
     ).rejects.toThrow()
   })
@@ -314,6 +339,248 @@ describe('actual migration on embedded PostgreSQL', () => {
           ).rows,
         ).toEqual([]),
       )
+  })
+  it('lets a signed-in Google user create exactly one household', async () => {
+    await asUser(erin, async () => {
+      await expect(db.query('select public.sync_profile()')).rejects.toThrow(
+        'Sign in with Google first',
+      )
+      await expect(
+        db.query("select public.create_household('Nope')"),
+      ).rejects.toThrow('Sign in with Google first')
+    })
+    await asUser(carol, async () => {
+      await db.query('select public.sync_profile()')
+      const created = await db.query<{ id: string }>(
+        "select public.create_household('  Carol''s kitchen  ') as id",
+      )
+      const id = created.rows[0].id
+      expect(
+        (await db.query<{ id: string }>('select public.my_household() as id'))
+          .rows[0].id,
+      ).toBe(id)
+      expect(
+        (
+          await db.query<{
+            name: string
+            display_name: string
+            is_me: boolean
+          }>(
+            'select name, display_name, is_me from public.household_overview()',
+          )
+        ).rows,
+      ).toEqual([
+        { name: "Carol's kitchen", display_name: 'Carol Cook', is_me: true },
+      ])
+      const state = await db.query<{ data: { phase: string } }>(
+        'select data from public.household_state',
+      )
+      expect(state.rows[0].data.phase).toBe('setup')
+      await expect(
+        db.query("select public.create_household('Second')"),
+      ).rejects.toThrow('already in a household')
+      // The only member cannot leave and orphan the household's data.
+      await expect(db.query('select public.leave_household()')).rejects.toThrow(
+        'only member',
+      )
+      await db.query("select public.rename_household('Cozy corner')")
+      await expect(db.query('select * from public.profiles')).rejects.toThrow(
+        'permission denied',
+      )
+      await expect(
+        db.query('select * from public.household_requests'),
+      ).rejects.toThrow('permission denied')
+    })
+  })
+
+  it('sends join requests only to existing users, who accept or decline them', async () => {
+    await asUser(dave, () => db.query('select public.sync_profile()'))
+    await asUser(alice, async () => {
+      // Short queries return nothing; matches never include the caller.
+      expect(
+        (await db.query("select * from public.search_users('da')")).rows,
+      ).toEqual([])
+      const found = await db.query<{
+        user_id: string
+        display_name: string
+        in_household: boolean
+      }>("select * from public.search_users('dumpl')")
+      expect(found.rows).toEqual([
+        expect.objectContaining({
+          user_id: dave,
+          display_name: 'Dave Dumpling',
+          in_household: false,
+        }),
+      ])
+      // Wildcards in the query are literal, not a way to list everyone.
+      expect(
+        (await db.query("select * from public.search_users('%%%')")).rows,
+      ).toEqual([])
+      await expect(
+        db.query('select public.request_member($1)', [outsider]),
+      ).rejects.toThrow('has not used Mealy yet')
+      const first = await db.query<{ id: string }>(
+        'select public.request_member($1) as id',
+        [dave],
+      )
+      const again = await db.query<{ id: string }>(
+        'select public.request_member($1) as id',
+        [dave],
+      )
+      expect(again.rows[0].id).toBe(first.rows[0].id)
+      expect(
+        (
+          await db.query<{ email: string }>(
+            'select email from public.household_sent_requests()',
+          )
+        ).rows,
+      ).toEqual([{ email: 'dave@gmail.com' }])
+    })
+    // Someone else's request is invisible and cannot be answered.
+    await asUser(carol, async () => {
+      expect(
+        (await db.query('select * from public.my_requests()')).rows,
+      ).toEqual([])
+      const pending = await asUser(dave, () =>
+        db.query<{ id: string }>('select id from public.my_requests()'),
+      )
+      await asUser(carol, async () =>
+        expect(
+          db.query('select public.respond_to_request($1, true)', [
+            pending.rows[0].id,
+          ]),
+        ).rejects.toThrow('Request not found'),
+      )
+    })
+    await asUser(dave, async () => {
+      const mine = await db.query<{ id: string; household_name: string }>(
+        'select id, household_name from public.my_requests()',
+      )
+      expect(mine.rows).toHaveLength(1)
+      await db.query('select public.respond_to_request($1, true)', [
+        mine.rows[0].id,
+      ])
+      expect(
+        (await db.query<{ id: string }>('select public.my_household() as id'))
+          .rows[0].id,
+      ).toBe(householdA)
+      expect(
+        (await db.query('select * from public.household_state')).rows,
+      ).toHaveLength(1)
+      expect(
+        (await db.query('select * from public.my_requests()')).rows,
+      ).toEqual([])
+    })
+  })
+
+  it('declines, withdraws, refuses joining a second household and lets members leave', async () => {
+    const carolsHousehold = await asUser(carol, () =>
+      db.query<{ id: string }>('select public.my_household() as id'),
+    )
+    // Alice asks Carol, who already has a household: she must leave first.
+    const toCarol = await asUser(alice, () =>
+      db.query<{ id: string }>('select public.request_member($1) as id', [
+        carol,
+      ]),
+    )
+    await asUser(carol, async () => {
+      await expect(
+        db.query('select public.respond_to_request($1, true)', [
+          toCarol.rows[0].id,
+        ]),
+      ).rejects.toThrow('Leave your current household')
+      await db.query('select public.respond_to_request($1, false)', [
+        toCarol.rows[0].id,
+      ])
+      expect(
+        (await db.query<{ id: string }>('select public.my_household() as id'))
+          .rows[0].id,
+      ).toBe(carolsHousehold.rows[0].id)
+    })
+    // Carol's household asks Dave, then thinks better of it.
+    const toDave = await asUser(carol, () =>
+      db.query<{ id: string }>('select public.request_member($1) as id', [
+        dave,
+      ]),
+    )
+    await asUser(carol, () =>
+      db.query('select public.withdraw_request($1)', [toDave.rows[0].id]),
+    )
+    await asUser(dave, async () => {
+      expect(
+        (await db.query('select * from public.my_requests()')).rows,
+      ).toEqual([])
+      await db.query('select public.leave_household()')
+      expect(
+        (await db.query<{ id: null }>('select public.my_household() as id'))
+          .rows[0].id,
+      ).toBeNull()
+      expect(
+        (await db.query('select * from public.household_state')).rows,
+      ).toEqual([])
+    })
+    await asUser(outsider, async () => {
+      await expect(
+        db.query("select * from public.search_users('dave')"),
+      ).rejects.toThrow('Household access denied')
+      await expect(
+        db.query('select public.request_member($1)', [dave]),
+      ).rejects.toThrow('Household access denied')
+    })
+  })
+
+  it('shows each household only the catalog recipes from its own sources', async () => {
+    await db.exec(`
+      insert into public.catalog_recipes(id, source, url, title, ingredient_lines, instructions)
+      values ('example:pie', 'example.com', 'https://example.com/pie/', 'Pie', '["1 egg"]', '["Bake."]');
+    `)
+    await asUser(alice, async () => {
+      const visible = async () =>
+        (
+          await db.query<{ id: string }>(
+            'select id from public.catalog_recipes order by id',
+          )
+        ).rows.map((row) => row.id)
+      // Existing households start with the two original sites.
+      expect(await visible()).toEqual(['tiffycooks:test'])
+      expect(
+        (
+          await db.query<{ add_source: string }>(
+            "select public.add_source('https://www.Example.com/recipes/')",
+          )
+        ).rows[0].add_source,
+      ).toBe('example.com')
+      expect(await visible()).toEqual(['example:pie', 'tiffycooks:test'])
+      for (const bad of [
+        'not a url',
+        'https://127.0.0.1/',
+        'ftp://example.org',
+      ])
+        await expect(
+          db.query('select public.add_source($1)', [bad]),
+        ).rejects.toThrow('web address of a recipe site')
+      await db.query("select public.remove_source('tiffycooks.com')")
+      expect(await visible()).toEqual(['example:pie'])
+      await expect(
+        db.query(
+          "insert into public.household_sources(household_id, domain) values ($1, 'evil.com')",
+          [householdA],
+        ),
+      ).rejects.toThrow('permission denied')
+    })
+    // Another household's sources are invisible and unaffected.
+    await asUser(carol, async () => {
+      expect(
+        (
+          await db.query<{ domain: string }>(
+            'select domain from public.household_sources order by domain',
+          )
+        ).rows.map((row) => row.domain),
+      ).toEqual(['thewoksoflife.com', 'tiffycooks.com'])
+      expect(
+        (await db.query('select id from public.catalog_recipes')).rows,
+      ).toEqual([{ id: 'tiffycooks:test' }])
+    })
   })
   it('revokes access immediately when an allowlist entry is removed', async () => {
     await db.exec(

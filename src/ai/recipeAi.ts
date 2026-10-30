@@ -36,6 +36,8 @@ export type DraftRequest = {
   history: string[]
   /** Remix: the saved recipe. Only its id is sent to the server. */
   original?: Recipe
+  /** Import: a recipe page the server fetches and reads. */
+  url?: string
 }
 /** A model comment; `target` names an ingredient, "step N" or a field. */
 export type DraftNote = { target: string | null; text: string }

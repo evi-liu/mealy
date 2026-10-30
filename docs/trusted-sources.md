@@ -28,6 +28,8 @@ The household chose to allow **any** recipe to be remixed with AI, including sou
 
 The household chose to preload and weekly-refresh a facts-only catalog from **both** sites (see README → Recipe catalog), and to allow catalog recipes to be remixed with AI. The Woks of Life's robots.txt opts out of AI crawlers (`anthropic-ai`, `GPTBot`, `Google-Extended`, `CCbot`); the importer is not such a crawler and only reads public sitemaps and recipe pages allowed for all user agents, but sending those facts to an AI provider during a remix goes against that stated preference. This was raised and the household decided to proceed. Both sites disallow `/wp-json/`, which is not used. Only titles, yields, times, ingredient lines and categories are stored, privately in Supabase; no directions, narrative text or photographs. This is a household choice, not a license from either publisher.
 
+Later the same day the household also chose to import each recipe's **full cooking directions** (the publisher's written steps) into the private catalog, and to let each household add other recipe sites. Directions are copyrighted text; they are stored only in the household's private Supabase project for its own use, never published or committed here, and every recipe keeps its source link. Photos and narrative text are still not stored. This reverses the earlier facts-only policy described below, which remains as history.
+
 ## Permission checks
 
 Official sources were checked on **2026-10-28**:

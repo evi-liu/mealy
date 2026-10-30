@@ -22,6 +22,8 @@ export function useHousehold() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [connected, setConnected] = useState(false)
+  // Signed in, but not a member of any household yet (or just left one).
+  const [noHousehold, setNoHousehold] = useState(false)
   const current = useRef<Snapshot | null>(null)
   const locked = useRef(false)
   const alive = useRef(true)
@@ -35,10 +37,16 @@ export function useHousehold() {
     if (!supabase) throw new Error('Supabase is not configured.')
     const membership = await supabase.rpc('my_household')
     if (membership.error) throw membership.error
-    if (!membership.data)
-      throw new Error(
-        'This Google account is not authorized. Ask the administrator to add your email to the household allowlist.',
-      )
+    if (!membership.data) {
+      current.current = null
+      if (alive.current) {
+        setSnapshot(null)
+        setNoHousehold(true)
+        setConnected(true)
+      }
+      return
+    }
+    if (alive.current) setNoHousehold(false)
     const { data, error } = await supabase
       .from('household_state')
       .select('data,version')
@@ -133,6 +141,9 @@ export function useHousehold() {
     busy,
     error,
     connected,
+    noHousehold,
+    reload: () =>
+      load().catch((error) => setError(String(error.message ?? error))),
     change,
     reportError: setError,
     retry: () => {
