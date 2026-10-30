@@ -1,8 +1,8 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from './fixtures/kitchen'
+import type { Page } from '@playwright/test'
 
 async function confirmedWeek(page: Page) {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await page.getByRole('button', { name: 'Start choosing recipes' }).click()
   for (let i = 1; i <= 3; i++) {
     await page.getByRole('button', { name: 'Appealing this week' }).click()
@@ -20,20 +20,26 @@ test('checking off a grocery stocks the pantry and unchecking takes it back', as
   await confirmedWeek(page)
   const row = page.locator('.groceryItem').first()
   const name = (await row.locator('strong').innerText()).split(' · ')[0]
-  await row.getByRole('checkbox').check()
+  await row.getByRole('checkbox').click()
+  await expect(row.getByRole('checkbox')).toBeChecked()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
   await expect(page.locator('.pantryItem strong')).toHaveText([name])
 
   await page.getByRole('button', { name: 'Groceries', exact: true }).click()
   await expect(row.getByRole('checkbox')).toBeChecked()
-  await row.getByRole('checkbox').uncheck()
+  await row.getByRole('checkbox').click()
+  await expect(row.getByRole('checkbox')).not.toBeChecked()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
   await expect(page.locator('.pantryItem')).toHaveCount(0)
 
   // Removing a bought item from the pantry unchecks just that grocery.
   await page.getByRole('button', { name: 'Groceries', exact: true }).click()
-  await row.getByRole('checkbox').check()
-  await page.locator('.groceryItem').nth(1).getByRole('checkbox').check()
+  await row.getByRole('checkbox').click()
+  await expect(row.getByRole('checkbox')).toBeChecked()
+  await page.locator('.groceryItem').nth(1).getByRole('checkbox').click()
+  await expect(
+    page.locator('.groceryItem').nth(1).getByRole('checkbox'),
+  ).toBeChecked()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
   await page.getByRole('button', { name: `Remove ${name}` }).click()
   await page.getByRole('button', { name: 'Groceries', exact: true }).click()
@@ -53,7 +59,6 @@ test('pantry items take an optional note when adding and editing', async ({
   page,
 }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
 
   await page

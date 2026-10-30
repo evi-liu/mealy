@@ -144,16 +144,16 @@ export function splitCatalog(entries: CatalogEntry[]) {
   }
 }
 
-/** Loads the shared catalog once per session in live mode. */
-export function useCatalog(live: boolean): Catalog {
+/** Loads the shared catalog once per signed-in session. */
+export function useCatalog(): Catalog {
   const [catalog, setCatalog] = useState<Catalog>({
     ready: [],
     review: [],
-    loaded: !live,
+    loaded: false,
     error: '',
   })
   useEffect(() => {
-    if (!live || !supabase) return
+    if (!supabase) return
     let active = true
     void supabase
       .from('catalog_recipes')
@@ -180,7 +180,7 @@ export function useCatalog(live: boolean): Catalog {
     return () => {
       active = false
     }
-  }, [live])
+  }, [])
   return catalog
 }
 

@@ -7,7 +7,7 @@ A mobile-first, installable React + TypeScript kitchen planner for one two-perso
 - Sunday setup defaults to **two dinners, four dinner servings, ten leftover lunch servings**. Kairos adds a separate eight-serving dish. Travel and Kairos start off. The explicitly labeled weekday assumption removes two lunches per Monday-Friday away; weekends do not alter lunch needs.
 - One shared shortlist of up to twelve recipes; like, temporary skip, undo, and explicit "don't recommend." Build unlocks on **viable serving coverage**, not simply a count of likes. You can continue swiping.
 - Recipe cards can be dragged and thrown. A small dependency-free spring engine (`src/motion/`) carries a fling toward the **Like** or **Not this week** edge targets that appear while the card is held; pausing before letting go (or releasing away from a target) springs the card back without voting. Buttons stay available and play the same animation; reduced-motion settings skip animation.
-- **Draft it with AI** at the top of **Add your recipe** describes a dish, fills the normal recipe form with an AI draft, and refines it from a text box at the bottom. Drafts stay on the device until the household reviews the form and saves. Saved drafts are labeled **AI-drafted**; demo mode uses a clearly labeled canned example instead of a model.
+- The floating **Add recipe** button stays above the bottom navigation while browsing Recipes and hides while editing. **Draft it with AI** at the top of the form describes a dish, fills the normal recipe form with an AI draft, and refines it from a text box at the bottom. Drafts stay on the device until the household reviews the form and saves. Saved drafts are labeled **AI-drafted**; model failures are shown without substituting canned recipes.
 - Any recipe can be remixed from its full recipe card: type into **I want to remix this recipe...** and the remix animates in with added, removed and changed ingredients, steps and details highlighted (computed by the app, with the AI's comments attached). Keep refining, undo the last change or discard. Nothing is stored until **Save as new recipe**, which saves straight to Recipes (and, when opened from the plan, takes that recipe's slot pinned if it still covers its servings), or **Replace original**, which confirms and opens the review form. Pin and loved are unavailable on an unsaved remix. The card's **US kitchen / Metric** toggle shares the grocery unit preference. Replacing a source-linked recipe makes it the household's own recipe (imported facts are dropped; the link is kept).
 - Deterministic combination selection among likes only, with leftover and maximum-batch constraints, variety, effort, ingredient overlap and pantry consideration. Compact thumbnail recipe rows and the full recipe card offer pins (for planned recipes) and a "We loved this" / "Loved" toggle; there is no swap selector or "We cooked this" action. Pins preserve recipe/role when rebuilding. Recipes are not assigned to dates.
 - Scaled, categorized groceries after plan confirmation. Compatible mass/volume units merge; incompatible dimensions and different ingredient names do not. Measured inventory is deducted once. Unknown-quantity staples remain on the shopping list with a reminder.
@@ -15,9 +15,9 @@ A mobile-first, installable React + TypeScript kitchen planner for one two-perso
 - Household recipe creation/editing, complete ingredients/methods, optional private photos, durable explicit preferences and feedback events. Recipe editing invalidates a dependent plan; removing pantry stock clears shopping checks (removing an item that a grocery check added only unchecks that grocery). A fresh week preserves recipes, pantry and durable preferences.
 - Trusted-source links for **The Woks of Life** and **Tiffy Cooks**, a paste-a-link bookmark flow, and reviewed manual entry of the user's own recipe details with source attribution. Ten selected Tiffy Cooks links also have factual ingredient/yield/time snapshots, added through Recipes and held out of planning until reviewed. Directions remain on the original site.
 - Live state is polled every four seconds and on focus/reconnection. Atomic version-checked saves reject stale edits, reload the other phone's changes, and ask you to repeat your action rather than silently overwrite them.
-- Hash-based tab URLs, `/mealy/` asset paths, install manifest and app-shell service worker. **Live household data is not cached for offline use**; it requires internet. Demo mode is explicit and persists only in this browser.
+- Hash-based tab URLs, `/mealy/` asset paths, install manifest and app-shell service worker. **Household data is not cached for offline use**; it requires internet.
 
-**Not yet available:** arbitrary-URL recipe import or in-app external recipe search. The bounded Tiffy facts snapshots contain no authored instructions or photographs; missing amounts and ranges require household review, with no guessed densities or package weights. See [source checks and facts-review behavior](docs/trusted-sources.md). The ten demo fixtures are original arithmetic/interaction examples, clearly marked **not tested cooking recipes**. Their kitchen illustrations are not recipe photographs. Live households start empty; available facts are added explicitly for matching saved links.
+**Not yet available:** arbitrary-URL recipe import or in-app external recipe search. The bounded Tiffy facts snapshots contain no authored instructions or photographs; missing amounts and ranges require household review, with no guessed densities or package weights. See [source checks and facts-review behavior](docs/trusted-sources.md). Kitchen illustrations are not recipe photographs. Households start empty; available facts are added explicitly for matching saved links.
 
 ## Local development
 
@@ -29,7 +29,9 @@ npm run dev
 # http://127.0.0.1:5173/mealy/
 ```
 
-Without public Supabase configuration, choose **Try the demo**. Live failures never switch into demo mode. Demo persistence errors are shown, with an explicit reset control. Demo and live data never merge.
+Mealy requires Supabase and an authorized Google account; there is no demo mode or local recipe database. Copy `.env.example` to the ignored `.env.local` and set the project's public URL and publishable key. Missing configuration shows an explicit setup error.
+
+For local development, run `npm run dev -- --port 5173 --strictPort` and open `http://127.0.0.1:5173/mealy/`. Add that exact URL to Supabase Auth's redirect allowlist, leaving the production site URL unchanged. Sign in normally; local edits affect the same real household. Old demo browser data is ignored and never uploaded. The production Edge Functions currently accept only their configured `APP_ORIGIN`; local AI requests require a separately configured local backend or an explicit server-side origin allowlist change, not a browser secret or a disabled origin check.
 
 ```sh
 npm test                    # deterministic planning/arithmetic + actual SQL/RLS on PGlite
@@ -39,7 +41,7 @@ npm run build               # strict TypeScript + production app/service worker
 npm run format:check
 ```
 
-PGlite runs the real migration against PostgreSQL with minimal mocked `auth`/`storage` schemas. It checks allowed/denied access, stale writes, atomic events, image path isolation and rate limits. It does **not** substitute for testing hosted Google OAuth, Storage uploads or Supabase Edge Functions with real credentials. Browser tests use explicit demo data and make no paid API requests.
+PGlite runs the real migration against PostgreSQL with minimal mocked `auth`/`storage` schemas. It checks allowed/denied access, stale writes, atomic events, image path isolation and rate limits. It does **not** substitute for testing hosted Google OAuth, Storage uploads or Supabase Edge Functions with real credentials. Browser tests build with a fake Supabase URL and intercept every external request using fixtures in `tests/fixtures/`. Fixtures and mock AI responses are not shipped in the app; tests never access the real household or make paid API requests.
 
 Icons are committed build inputs; `npm run icons` regenerates them from the original SVG using Playwright Chromium.
 
@@ -81,7 +83,7 @@ The app's planning and serving logic works without AI. Clicking **Use optional A
 
 **Remix** (full recipe card) works the same way through `recipe-draft`, but the function loads the saved recipe itself from the household document by ID (including stored source facts for source-linked recipes) instead of trusting a copy from the browser. Highlights are computed in the app by comparing the saved recipe with the draft; the model's comments are attached where they match.
 
-**Draft it with AI** (Recipes → Add your recipe) sends the household's description, its earlier requests for that draft, and the current unsaved form contents to the `recipe-draft` function, which asks OpenAI for one complete recipe in the app's units and categories. The answer is validated against the recipe bounds on the server and again in the browser; unusable answers are rejected rather than repaired. The model may decline unrelated or unsafe requests. Unlike ranking, this **does** produce model-written quantities, yields and steps: the form must be reviewed and an explicit acknowledgement checked before saving, and the recipe keeps an `aiDraft` provenance record (creation time and prompts). AI drafts are not kitchen-tested.
+**Draft it with AI** (Recipes → Add recipe) sends the household's description, its earlier requests for that draft, and the current unsaved form contents to the `recipe-draft` function, which asks OpenAI for one complete recipe in the app's units and categories. The answer is validated against the recipe bounds on the server and again in the browser; unusable answers are rejected rather than repaired. The model may decline unrelated or unsafe requests. Unlike ranking, this **does** produce model-written quantities, yields and steps: the form must be reviewed and an explicit acknowledgement checked before saving, and the recipe keeps an `aiDraft` provenance record (creation time and prompts). AI drafts are not kitchen-tested.
 
 Deploy with Supabase CLI after reviewing provider privacy/cost settings:
 
@@ -115,7 +117,7 @@ The repository includes ordinary CI and a **manual-only** Pages workflow. Nothin
 3. Run **Publish Mealy (manual)**. Review/approve its `github-pages` environment as appropriate.
 4. Verify the hosted Google callback, both-phone synchronization, denied-account access, and photo upload on the real origin. On iOS use Safari's **Share → Add to Home Screen**; on Android use the browser's install action.
 
-Builds with no configuration expose only the labeled demo. Never treat a successful static build or local SQL test as proof that production Google/Supabase/OpenAI services are configured.
+Builds with no configuration show a setup error and cannot open a kitchen. Never treat a successful static build or local SQL test as proof that production Google/Supabase/OpenAI services are configured.
 
 ## Arithmetic and current boundaries
 

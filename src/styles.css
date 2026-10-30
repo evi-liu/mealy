@@ -611,6 +611,24 @@ label {
   background: #fffdf8bd;
   margin: 12px 0;
 }
+.recipeLibrary.browsing {
+  padding-bottom: 76px;
+}
+.recipeLibrary.browsing > .screenHeader {
+  margin-bottom: 16px;
+}
+.addRecipeButton {
+  position: fixed;
+  right: max(22px, calc((100% - 460px) / 2 + 22px));
+  bottom: calc(90px + env(safe-area-inset-bottom));
+  z-index: 4;
+  width: auto;
+  min-height: 48px;
+  margin: 0;
+  padding: 12px 18px;
+  border-radius: 24px;
+  box-shadow: 0 4px 18px #30291f30;
+}
 .mealHeading {
   display: flex;
   justify-content: space-between;
@@ -953,9 +971,6 @@ label {
   border: 0;
   background: transparent;
   color: inherit;
-}
-.modeBar.demo {
-  background: #eee1c8;
 }
 .error,
 .errorBanner {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { demoRecipes } from './demo'
+import { fixtureRecipes } from '../tests/fixtures/recipes'
 import {
   buildPlan,
   canonical,
@@ -26,12 +26,12 @@ import {
 } from './domain'
 
 function ready(): State {
-  const state = initialState(demoRecipes)
+  const state = initialState(fixtureRecipes)
   return {
     ...state,
     queue: shortlist(state),
     decisions: Object.fromEntries(
-      demoRecipes.slice(0, 5).map((r) => [r.id, 'like']),
+      fixtureRecipes.slice(0, 5).map((r) => [r.id, 'like']),
     ),
   }
 }
@@ -114,7 +114,7 @@ describe('weekly targets', () => {
 })
 describe('shared shortlist and feedback', () => {
   it('keeps likes in a shortlist without committing a plan', () => {
-    let state = initialState(demoRecipes)
+    let state = initialState(fixtureRecipes)
     state.queue = shortlist(state)
     for (const id of state.queue.slice(0, 3)) state = decide(state, id, 'like')
     expect(Object.keys(state.decisions)).toHaveLength(3)
@@ -123,38 +123,38 @@ describe('shared shortlist and feedback', () => {
   })
   it('prevents duplicate or stale swipe actions', () => {
     const state = ready()
-    expect(() => decide(state, 'demo-1', 'like')).toThrow('no longer')
+    expect(() => decide(state, 'fixture-1', 'like')).toThrow('no longer')
     expect(() => decide(state, 'unknown', 'like')).toThrow('no longer')
   })
   it('undo clears dependent plan/checks, but never changes durable feedback', () => {
     const state = ready()
-    state.history = ['demo-1']
-    state.loved = ['demo-1']
+    state.history = ['fixture-1']
+    state.loved = ['fixture-1']
     state.plan = buildPlan(state)
     state.confirmed = true
     state.checked = ['rice:g']
     const result = undo(state)
-    expect(result.decisions['demo-1']).toBeUndefined()
+    expect(result.decisions['fixture-1']).toBeUndefined()
     expect(result.plan).toEqual([])
     expect(result.confirmed).toBe(false)
     expect(result.checked).toEqual([])
-    expect(result.loved).toEqual(['demo-1'])
+    expect(result.loved).toEqual(['fixture-1'])
   })
   it('does not turn a weekly skip into a lasting dislike', () => {
     const state = ready()
-    state.decisions['demo-1'] = 'skip'
+    state.decisions['fixture-1'] = 'skip'
     const fresh = newWeek(state)
     expect(fresh.decisions).toEqual({})
-    expect(shortlist(fresh)).toContain('demo-1')
+    expect(shortlist(fresh)).toContain('fixture-1')
   })
   it('mixes familiar and new options, excludes explicitly blocked recipes, caps at 12', () => {
     const state = ready()
-    state.loved = ['demo-1']
-    state.blocked = ['demo-2']
+    state.loved = ['fixture-1']
+    state.blocked = ['fixture-2']
     const result = shortlist(state)
-    expect(result[0]).toBe('demo-1')
-    expect(result[1]).not.toBe('demo-1')
-    expect(result).not.toContain('demo-2')
+    expect(result[0]).toBe('fixture-1')
+    expect(result[1]).not.toBe('fixture-1')
+    expect(result).not.toContain('fixture-2')
     expect(result.length).toBeLessThanOrEqual(12)
   })
 })
@@ -171,9 +171,9 @@ describe('deterministic plan constraints', () => {
   })
   it('never includes a skipped or blocked recipe to fill a gap', () => {
     const state = ready()
-    state.decisions = { 'demo-1': 'like', 'demo-2': 'skip' }
+    state.decisions = { 'fixture-1': 'like', 'fixture-2': 'skip' }
     expect(() => buildPlan(state)).toThrow('Not enough')
-    state.blocked = ['demo-1']
+    state.blocked = ['fixture-1']
     expect(() => buildPlan(state)).toThrow()
   })
   it('requires a separate viable Kairos dish with eight servings', () => {
@@ -191,7 +191,7 @@ describe('deterministic plan constraints', () => {
     const state = ready()
     state.recipes = state.recipes.map((r) => ({ ...r, leftovers: false }))
     expect(() => buildPlan(state)).toThrow()
-    state.recipes = demoRecipes.map((r) => ({ ...r, maxServings: 6 }))
+    state.recipes = fixtureRecipes.map((r) => ({ ...r, maxServings: 6 }))
     expect(() => buildPlan(state)).toThrow()
   })
   it('handles zero dinners only with zero lunches', () => {
@@ -225,7 +225,7 @@ describe('deterministic plan constraints', () => {
     )!
     const swapped = swapRecipe(state, 0, recipe.id)
     expect(swapped[0]).toEqual({ ...state.plan[0], recipeId: recipe.id })
-    expect(() => swapRecipe(state, 0, 'demo-10')).toThrow('liked')
+    expect(() => swapRecipe(state, 0, 'fixture-10')).toThrow('liked')
     expect(() => swapRecipe(state, 0, state.plan[1].recipeId)).toThrow()
     state.plan[0].pinned = true
     expect(() => swapRecipe(state, 0, recipe.id)).toThrow('Unpin')
@@ -233,18 +233,18 @@ describe('deterministic plan constraints', () => {
   it('rejects a swap that loses lunch or serving coverage', () => {
     const state = ready()
     state.plan = buildPlan(state)
-    state.decisions['demo-10'] = 'like'
+    state.decisions['fixture-10'] = 'like'
     state.recipes = state.recipes.map((r) =>
-      r.id === 'demo-10' ? { ...r, maxServings: 2 } : r,
+      r.id === 'fixture-10' ? { ...r, maxServings: 2 } : r,
     )
-    expect(() => swapRecipe(state, 0, 'demo-10')).toThrow('servings')
+    expect(() => swapRecipe(state, 0, 'fixture-10')).toThrow('servings')
   })
   it('covers every dinner/travel combination without changing requested recipe counts', () => {
     for (let dinners = 1; dinners <= 7; dinners++)
       for (let away = 0; away <= 5; away++) {
         const state = ready()
         state.decisions = Object.fromEntries(
-          demoRecipes.map((r) => [r.id, 'like']),
+          fixtureRecipes.map((r) => [r.id, 'like']),
         )
         state.settings = {
           dinners,
@@ -262,7 +262,7 @@ describe('deterministic plan constraints', () => {
 })
 describe('grocery arithmetic', () => {
   const recipe: Recipe = {
-    ...demoRecipes[0],
+    ...fixtureRecipes[0],
     id: 'rice',
     servings: 4,
     ingredients: [
@@ -385,11 +385,11 @@ describe('remixes and loved feedback', () => {
     ).toBeNull()
   })
   it('toggles loved and records which way', () => {
-    const state = initialState(demoRecipes)
-    const loved = toggleLoved(state, demoRecipes[0].id)
-    expect(loved.state.loved).toEqual([demoRecipes[0].id])
+    const state = initialState(fixtureRecipes)
+    const loved = toggleLoved(state, fixtureRecipes[0].id)
+    expect(loved.state.loved).toEqual([fixtureRecipes[0].id])
     expect(loved.event.kind).toBe('loved')
-    const unloved = toggleLoved(loved.state, demoRecipes[0].id)
+    const unloved = toggleLoved(loved.state, fixtureRecipes[0].id)
     expect(unloved.state.loved).toEqual([])
     expect(unloved.event.kind).toBe('unloved')
   })
@@ -397,7 +397,7 @@ describe('remixes and loved feedback', () => {
 
 describe('groceries and the pantry', () => {
   it('adds a checked grocery to the pantry and removes it when unchecked', () => {
-    const state = initialState(demoRecipes)
+    const state = initialState(fixtureRecipes)
     const checked = toggleGroceryCheck(state, 'rice:g', 'rice')
     expect(checked.checked).toEqual(['rice:g'])
     expect(checked.pantry).toEqual([
@@ -420,7 +420,7 @@ describe('groceries and the pantry', () => {
       unit: 'each',
       note: 'half full',
     }
-    const state = { ...initialState(demoRecipes), pantry: [own] }
+    const state = { ...initialState(fixtureRecipes), pantry: [own] }
     const checked = toggleGroceryCheck(state, 'rice:g', 'Rice')
     expect(checked.pantry).toEqual([own])
     expect(toggleGroceryCheck(checked, 'rice:g', 'Rice').pantry).toEqual([own])
@@ -428,7 +428,7 @@ describe('groceries and the pantry', () => {
   it('keeps the pantry, notes and bought items for a fresh week', () => {
     const state = toggleGroceryCheck(
       {
-        ...initialState(demoRecipes),
+        ...initialState(fixtureRecipes),
         pantry: [
           {
             id: 'p1',

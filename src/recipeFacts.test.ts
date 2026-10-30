@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import snapshots from './tiffy-facts.json'
-import { demoRecipes } from './demo'
+import { fixtureRecipes } from '../tests/fixtures/recipes'
 import {
   buildPlan,
   decide,
@@ -121,7 +121,7 @@ describe('facts-only recipe snapshots', () => {
     ).toThrow('Review')
     state.plan = [
       {
-        recipeId: demoRecipes[0].id,
+        recipeId: fixtureRecipes[0].id,
         role: 'dinner',
         servings: 2,
         pinned: false,
@@ -148,7 +148,8 @@ describe('facts-only recipe snapshots', () => {
       }).success,
     ).toBe(false)
     expect(
-      recipeSchema.safeParse({ ...demoRecipes[0], instructions: [] }).success,
+      recipeSchema.safeParse({ ...fixtureRecipes[0], instructions: [] })
+        .success,
     ).toBe(false)
   })
 

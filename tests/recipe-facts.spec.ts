@@ -1,21 +1,18 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/kitchen'
 import AxeBuilder from '@axe-core/playwright'
 import { initialState, makeBookmark } from '../src/domain'
 import { tiffyRecipeFacts } from '../src/recipeFacts'
 
 test('imports source facts, reviews a recipe and plans only reviewed quantities', async ({
   page,
+  kitchen,
 }) => {
   const state = initialState()
   state.bookmarks = tiffyRecipeFacts.map((recipe) =>
     makeBookmark(recipe.title, recipe.sourceUrl!),
   )
-  await page.addInitScript((state) => {
-    if (!localStorage.getItem('mealy-demo-v1'))
-      localStorage.setItem('mealy-demo-v1', JSON.stringify(state))
-  }, state)
+  kitchen.state = state
   await page.goto('./#recipes')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await page
     .getByRole('button', { name: 'Add recipe facts for 10 Tiffy Cooks links' })
     .click()
@@ -91,7 +88,6 @@ test('imports source facts, reviews a recipe and plans only reviewed quantities'
     page.locator('.groceryItem').filter({ hasText: 'soy sauce' }),
   ).toContainText('6 tbsp')
   await page.reload()
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await expect(
     page.locator('.groceryItem').filter({ hasText: 'soy sauce' }),
   ).toContainText('6 tbsp')
@@ -99,15 +95,12 @@ test('imports source facts, reviews a recipe and plans only reviewed quantities'
 
 test('unresolved source amounts stay blank until the household reviews them', async ({
   page,
+  kitchen,
 }) => {
   const recipe = tiffyRecipeFacts[0]
   const state = initialState([recipe])
-  await page.addInitScript(
-    (state) => localStorage.setItem('mealy-demo-v1', JSON.stringify(state)),
-    state,
-  )
+  kitchen.state = state
   await page.goto('./#recipes')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await page.getByRole('button', { name: 'Review details' }).click()
   const chili = page
     .locator('.ingredientEditor')

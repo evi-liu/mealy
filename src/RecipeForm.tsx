@@ -23,7 +23,6 @@ export function RecipeForm({
   recipe,
   onSave,
   onCancel,
-  live,
   bookmark,
   ai,
   heading,
@@ -33,7 +32,6 @@ export function RecipeForm({
   recipe?: Recipe
   onSave: (recipe: Recipe, image?: File) => Promise<boolean>
   onCancel: () => void
-  live: boolean
   bookmark?: Bookmark
   /** Offered only for brand-new recipes; drafts stay local until saved. */
   ai?: RecipeAi
@@ -267,7 +265,6 @@ export function RecipeForm({
           <p className="helper">
             Describe a dish and AI fills in the form below. Nothing is saved
             until you review it and tap Save.
-            {ai.demo && ' Demo mode shows a canned example.'}
           </p>
           <PromptBar
             label="Describe a recipe to add"
@@ -552,16 +549,14 @@ export function RecipeForm({
               ? 'I reviewed this AI-drafted recipe: amounts, servings, batch size and steps.'
               : 'These are my own recipe details, or I have permission to save them.'}
         </label>
-        {live && (
-          <label>
-            Your recipe photo (optional)
-            <input
-              name="image"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-            />
-          </label>
-        )}
+        <label>
+          Your recipe photo (optional)
+          <input
+            name="image"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+          />
+        </label>
         <div className="buttonRow">
           <Button className="secondaryButton" onClick={leave}>
             Cancel

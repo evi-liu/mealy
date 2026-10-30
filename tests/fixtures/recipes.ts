@@ -1,4 +1,4 @@
-import type { Recipe } from './domain'
+import type { Recipe } from '../../src/domain'
 
 // Original illustrative fixtures, not scraped recipes or photographed dishes.
 const fixtures = [
@@ -49,27 +49,24 @@ const fixtures = [
   ],
 ] as const
 
-export const demoRecipes: Recipe[] = fixtures.map(
+export const fixtureRecipes: Recipe[] = fixtures.map(
   ([title, protein, main, starch, vegetable, minutes], i) => ({
-    id: `demo-${i + 1}`,
+    id: `fixture-${i + 1}`,
     title,
     protein,
     minutes,
     servings: 4,
     maxServings: 12,
-    description:
-      'Illustrative demo recipe. Replace with one of your own kitchen favorites.',
+    description: 'Test fixture for meal planning and grocery arithmetic.',
     leftovers: true,
     potluck: i % 2 === 0,
-    source: 'demo',
+    source: 'own',
     ingredients: [
       { name: main, amount: 500, unit: 'g', category: 'Protein' },
       { name: starch, amount: 300, unit: 'g', category: 'Pantry' },
       { name: vegetable, amount: 400, unit: 'g', category: 'Produce' },
       { name: 'olive oil', amount: 2, unit: 'tbsp', category: 'Pantry' },
     ],
-    instructions: [
-      'Demo only: these ingredients illustrate scaling and shopping, not a tested cooking method. Add your own complete recipe to cook from Mealy.',
-    ],
+    instructions: ['Test fixture only, not a kitchen-tested cooking method.'],
   }),
 )

@@ -273,13 +273,11 @@ export function RecipeDetails({
           <Dialog.Description>
             {current
               ? 'Unsaved AI remix. Not kitchen-tested.'
-              : recipe.source === 'demo'
-                ? 'Illustrative demo, not a tested cooking recipe.'
-                : recipe.aiDraft
-                  ? 'Your household recipe, drafted with AI and reviewed by you. Not kitchen-tested.'
-                  : recipe.source === 'reference'
-                    ? 'Source-linked recipe facts. Cooking directions remain on the original website.'
-                    : 'Your household recipe.'}
+              : recipe.aiDraft
+                ? 'Your household recipe, drafted with AI and reviewed by you. Not kitchen-tested.'
+                : recipe.source === 'reference'
+                  ? 'Source-linked recipe facts. Cooking directions remain on the original website.'
+                  : 'Your household recipe.'}
           </Dialog.Description>
           <Dialog.Close className="dialogClose" aria-label="Close recipe">
             <X size={20} />
@@ -366,14 +364,12 @@ export function RecipeDetails({
                 >
                   Save as new recipe
                 </Button>
-                {recipe.source !== 'demo' && (
-                  <Button
-                    className="secondaryButton"
-                    onClick={(e) => void save(true, e.currentTarget)}
-                  >
-                    Replace original
-                  </Button>
-                )}
+                <Button
+                  className="secondaryButton"
+                  onClick={(e) => void save(true, e.currentTarget)}
+                >
+                  Replace original
+                </Button>
               </div>
             </section>
           )}
@@ -559,11 +555,6 @@ export function RecipeDetails({
           {aiError && (
             <p role="alert" className="error">
               {aiError}
-            </p>
-          )}
-          {ai.demo && (
-            <p className="helper">
-              Demo mode makes example changes instead of reading your request.
             </p>
           )}
           <PromptBar

@@ -50,18 +50,13 @@ import {
   type Bookmark,
   sourceName,
 } from './domain'
-import {
-  configIncomplete,
-  supabase,
-  useHousehold,
-  type HouseholdStore,
-} from './store'
+import { supabase, useHousehold, type HouseholdStore } from './store'
 import { RecipeForm } from './RecipeForm'
 import { Bookmarks } from './Bookmarks'
 import { useGroceryUnits } from './useGroceryUnits'
 import { useFlingCard } from './motion/useFlingCard'
 import { flyToDeck } from './motion/flyToDeck'
-import { demoRecipeAi, liveRecipeAi, type RecipeAi } from './ai/recipeAi'
+import { liveRecipeAi, type RecipeAi } from './ai/recipeAi'
 import { RecipeArt } from './RecipeArt'
 import { unsaved, useCatalog, type Catalog } from './catalog'
 import { LovedButton, RecipeDetails, type RemixSave } from './RecipeDetails'
@@ -304,14 +299,12 @@ function Swipe({
   change,
   household,
   details,
-  live,
   reportError,
 }: {
   state: State
   change: HouseholdStore['change']
   household?: string | null
   details: (recipe: Recipe) => void
-  live: boolean
   reportError: (message: string) => void
 }) {
   const [ranking, setRanking] = useState(false)
@@ -433,13 +426,11 @@ function Swipe({
               <RecipeArt recipe={recipe} household={household} />
               <div className="cardCopy">
                 <span className="eyebrow">
-                  {recipe.source === 'demo'
-                    ? 'DEMO RECIPE'
-                    : state.loved.includes(recipe.id)
-                      ? 'A LOVED FAVORITE'
-                      : recipe.source === 'reference' && recipe.sourceUrl
-                        ? sourceName(recipe.sourceUrl)
-                        : 'FROM YOUR KITCHEN'}
+                  {state.loved.includes(recipe.id)
+                    ? 'A LOVED FAVORITE'
+                    : recipe.source === 'reference' && recipe.sourceUrl
+                      ? sourceName(recipe.sourceUrl)
+                      : 'FROM YOUR KITCHEN'}
                 </span>
                 <h2>{recipe.title}</h2>
                 <p>{recipe.description}</p>
@@ -535,16 +526,14 @@ function Swipe({
           </Button>
         </section>
       )}
-      {live && (
-        <Button
-          className="secondaryButton"
-          disabled={ranking || !state.queue.length}
-          onClick={() => void rank()}
-        >
-          <Sparkles size={16} />
-          {ranking ? 'Ranking...' : 'Use optional AI ranking'}
-        </Button>
-      )}
+      <Button
+        className="secondaryButton"
+        disabled={ranking || !state.queue.length}
+        onClick={() => void rank()}
+      >
+        <Sparkles size={16} />
+        {ranking ? 'Ranking...' : 'Use optional AI ranking'}
+      </Button>
       <div className="setupFooter">
         <Button
           className="primaryButton"
@@ -638,7 +627,6 @@ function Plan({
                 <RecipeArt recipe={recipe} household={household} compact />
                 <span className="plannedRecipeCopy">
                   <span className="recipeNumber">
-                    {recipe.source === 'demo' ? 'DEMO · ' : ''}
                     {slot.role === 'kairos' ? 'KAIROS' : `RECIPE ${index + 1}`}
                   </span>
                   <strong>{recipe.title}</strong>
@@ -1118,7 +1106,6 @@ function CatalogSection({
 
 function Recipes({
   store,
-  live,
   ai,
   details,
   remix,
@@ -1126,7 +1113,6 @@ function Recipes({
   catalog,
 }: {
   store: HouseholdStore
-  live: boolean
   ai: RecipeAi
   details: (recipe: Recipe) => void
   remix: RemixSave | null
@@ -1221,7 +1207,7 @@ function Recipes({
     return saved
   }
   return (
-    <main className="screen">
+    <main className={`screen recipeLibrary${editing ? '' : ' browsing'}`}>
       <Header eyebrow="YOUR RECIPE BOX" title="Kitchen favorites" />
       {editing ? (
         <RecipeForm
@@ -1232,7 +1218,6 @@ function Recipes({
           }
           recipe={editing === 'new' ? undefined : editing}
           bookmark={fromBookmark}
-          live={live}
           ai={editing === 'new' && !fromBookmark ? ai : undefined}
           heading={reviewingRemix ? 'Review your remix' : undefined}
           celebrate={
@@ -1258,25 +1243,24 @@ function Recipes({
       ) : (
         <>
           <Button
-            className="primaryButton"
+            className="primaryButton addRecipeButton"
             onClick={() => {
               setFromBookmark(undefined)
               setBaseline(null)
               setEditing('new')
+              window.scrollTo({ top: 0, behavior: 'instant' })
             }}
           >
-            <Plus size={18} /> Add your recipe
+            <Plus size={18} aria-hidden="true" /> Add recipe
           </Button>
           {state.recipes.map((recipe) => (
             <article className="mealRow recipeEntry" key={recipe.id}>
               <span className="eyebrow">
-                {recipe.source === 'demo'
-                  ? 'DEMO'
-                  : recipe.aiDraft
-                    ? 'AI-DRAFTED'
-                    : recipe.source === 'reference' && recipe.sourceUrl
-                      ? sourceName(recipe.sourceUrl)
-                      : 'YOUR RECIPE'}
+                {recipe.aiDraft
+                  ? 'AI-DRAFTED'
+                  : recipe.source === 'reference' && recipe.sourceUrl
+                    ? sourceName(recipe.sourceUrl)
+                    : 'YOUR RECIPE'}
               </span>
               <Button className="recipeTitle" onClick={() => details(recipe)}>
                 {recipe.title}
@@ -1295,17 +1279,15 @@ function Recipes({
                 </p>
               )}
               <div className="buttonRow">
-                {recipe.source !== 'demo' && (
-                  <Button
-                    className="textButton"
-                    onClick={() => {
-                      setBaseline(recipe)
-                      setEditing(recipe)
-                    }}
-                  >
-                    {recipe.facts?.needsReview ? 'Review details' : 'Edit'}
-                  </Button>
-                )}
+                <Button
+                  className="textButton"
+                  onClick={() => {
+                    setBaseline(recipe)
+                    setEditing(recipe)
+                  }}
+                >
+                  {recipe.facts?.needsReview ? 'Review details' : 'Edit'}
+                </Button>
                 {state.blocked.includes(recipe.id) && (
                   <Button
                     className="textButton"
@@ -1359,8 +1341,8 @@ function Recipes({
   )
 }
 
-function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
-  const store = useHousehold(mode)
+function Kitchen({ exit }: { exit: () => void }) {
+  const store = useHousehold()
   const state = store.state
   const [tab, setTab] = useState<Tab>(initialTab)
   const [detail, setDetail] = useState<{
@@ -1370,8 +1352,8 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
   } | null>(null)
   const [remix, setRemix] = useState<RemixSave | null>(null)
   const clearRemix = useCallback(() => setRemix(null), [])
-  const ai = mode === 'live' ? liveRecipeAi : demoRecipeAi
-  const catalog = useCatalog(mode === 'live')
+  const ai = liveRecipeAi
+  const catalog = useCatalog()
   const headingRef = useRef<HTMLDivElement>(null)
   function navigate(tab: Tab) {
     window.location.hash = tab
@@ -1394,18 +1376,13 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
     setDetail({ recipe, servings, slot })
   return (
     <div className="appShell" ref={headingRef}>
-      <div className={`modeBar ${mode}`}>
+      <div className="modeBar live">
         <span>
-          {mode === 'demo'
-            ? 'DEMO · this browser only'
-            : store.connected
-              ? 'Your shared kitchen · sync every 4s'
-              : 'Connection unavailable · changes need internet'}
+          {store.connected
+            ? 'Your shared kitchen · sync every 4s'
+            : 'Connection unavailable · changes need internet'}
         </span>
-        <Button
-          aria-label={mode === 'demo' ? 'Leave demo' : 'Sign out'}
-          onClick={exit}
-        >
+        <Button aria-label="Sign out" onClick={exit}>
           <LogOut size={15} />
         </Button>
       </div>
@@ -1413,20 +1390,6 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
         <div role="alert" className="errorBanner">
           <p>{store.error}</p>
           <Button onClick={store.retry}>Retry connection</Button>
-          {mode === 'demo' && (
-            <Button
-              onClick={() => {
-                if (
-                  window.confirm(
-                    'Reset this browser’s demo? This does not affect a live household.',
-                  )
-                )
-                  store.resetDemo()
-              }}
-            >
-              Reset demo
-            </Button>
-          )}
         </div>
       )}
       {!state ? (
@@ -1457,7 +1420,6 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
                   change={store.change}
                   household={store.household}
                   details={details}
-                  live={mode === 'live'}
                   reportError={store.reportError}
                 />
               ) : (
@@ -1476,7 +1438,6 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
             {tab === 'recipes' && (
               <Recipes
                 store={store}
-                live={mode === 'live'}
                 ai={ai}
                 details={details}
                 remix={remix}
@@ -1554,7 +1515,7 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
 }
 
 export default function App() {
-  const [mode, setMode] = useState<'welcome' | 'demo' | 'live'>('welcome')
+  const [mode, setMode] = useState<'welcome' | 'live'>('welcome')
   const [loading, setLoading] = useState(Boolean(supabase))
   const [error, setError] = useState(
     () => new URLSearchParams(location.search).get('error_description') ?? '',
@@ -1617,7 +1578,6 @@ export default function App() {
         )}
         <Kitchen
           key={mode}
-          mode={mode}
           exit={() => void exit().catch((error) => setError(message(error)))}
         />
       </>
@@ -1645,12 +1605,6 @@ export default function App() {
             {error}
           </p>
         )}
-        {configIncomplete && (
-          <p role="alert" className="error">
-            Supabase configuration is incomplete. Set both public environment
-            variables.
-          </p>
-        )}
         {supabase && (
           <Button
             className="primaryButton"
@@ -1663,21 +1617,14 @@ export default function App() {
           </Button>
         )}
         {!supabase && (
-          <p className="helper">
-            Live sync is not configured in this build. The demo below stays on
-            this browser and never pretends to sync.
+          <p role="alert" className="error">
+            Mealy needs a Supabase connection. Configure VITE_SUPABASE_URL and
+            VITE_SUPABASE_PUBLISHABLE_KEY to open your shared kitchen.
           </p>
         )}
-        <Button
-          className="secondaryButton"
-          disabled={loading}
-          onClick={() => setMode('demo')}
-        >
-          Try the demo <ArrowRight size={18} />
-        </Button>
         <p className="helper">
-          Only the two Google accounts configured by your household
-          administrator can access your live kitchen.
+          Only Google accounts approved by your household administrator can
+          access your shared kitchen.
         </p>
       </main>
     </div>

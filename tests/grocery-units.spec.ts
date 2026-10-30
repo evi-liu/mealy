@@ -1,11 +1,11 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/kitchen'
 import AxeBuilder from '@axe-core/playwright'
 
 test('ingredient-first quantities convert without losing checks and persist after reload', async ({
   page,
+  kitchen,
 }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await page.getByRole('button', { name: 'Start choosing recipes' }).click()
   for (let i = 0; i < 3; i++)
     await page.getByRole('button', { name: 'Appealing this week' }).click()
@@ -26,16 +26,13 @@ test('ingredient-first quantities convert without losing checks and persist afte
   await expect(row.locator('strong')).toHaveText(
     /^[a-z][a-z ]+ · [\d,.]+ (oz|lb)$/,
   )
-  const householdBeforeToggle = await page.evaluate(() =>
-    localStorage.getItem('mealy-demo-v1'),
-  )
+  const householdBeforeToggle = structuredClone(kitchen.state)
   await page.getByRole('button', { name: 'Metric', exact: true }).click()
-  expect(await page.evaluate(() => localStorage.getItem('mealy-demo-v1'))).toBe(
-    householdBeforeToggle,
-  )
+  expect(kitchen.state).toEqual(householdBeforeToggle)
   const metricText = await row.locator('strong').innerText()
   expect(metricText).toMatch(/^[a-z][a-z ]+ · [\d,.]+ (g|kg)$/)
-  await row.getByRole('checkbox').check()
+  await row.getByRole('checkbox').click()
+  await expect(row.getByRole('checkbox')).toBeChecked()
   await page.getByRole('button', { name: 'US kitchen', exact: true }).click()
   await expect(row.locator('strong')).toHaveText(
     /^[a-z][a-z ]+ · [\d,.]+ (oz|lb)$/,
@@ -55,7 +52,6 @@ test('ingredient-first quantities convert without losing checks and persist afte
     ).violations,
   ).toEqual([])
   await page.reload()
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await expect(
     page.getByRole('button', { name: 'US kitchen', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true')
@@ -66,7 +62,6 @@ test('ingredient-first quantities convert without losing checks and persist afte
     await page.evaluate(() => localStorage.getItem('mealy-grocery-units')),
   ).toBe('metric')
   await page.reload()
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await expect(
     page.getByRole('button', { name: 'Metric', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true')
@@ -77,7 +72,6 @@ test('pantry is a quick ingredient field, rejects duplicates and does not assume
   page,
 }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
   const input = page.getByRole('textbox', { name: 'Add pantry ingredient' })
   // An ingredient plus an optional free-text note; no quantity pickers.
@@ -121,7 +115,6 @@ test('unit storage failures are visible rather than claiming the preference was 
     }
   })
   await page.goto('./')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await page.getByRole('button', { name: 'Start choosing recipes' }).click()
   for (let i = 0; i < 3; i++)
     await page.getByRole('button', { name: 'Appealing this week' }).click()

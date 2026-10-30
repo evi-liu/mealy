@@ -219,7 +219,7 @@ describe('actual migration on embedded PostgreSQL', () => {
         (
           await db.query<{ v: number }>(
             'select public.save_household(1,$1,$2,$3) as v',
-            [initialState(), 'unloved', 'demo-1'],
+            [initialState(), 'unloved', 'fixture-1'],
           )
         ).rows[0].v,
       ).toBe(2)

@@ -89,7 +89,7 @@ export const recipeSchema = z
     protein: text,
     leftovers: z.boolean(),
     potluck: z.boolean(),
-    source: z.enum(['own', 'demo', 'reference']),
+    source: z.enum(['own', 'reference']),
     sourceUrl: sourceUrlSchema.optional(),
     facts: recipeFactsSchema.optional(),
     /** Set while this is an unedited copy of a shared catalog recipe. */

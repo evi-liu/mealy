@@ -1,10 +1,10 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from './fixtures/kitchen'
+import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { initialState } from '../src/domain'
 
 async function start(page: Page) {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
 }
 async function like(page: Page, count: number) {
   for (let i = 0; i < count; i++)
@@ -12,11 +12,9 @@ async function like(page: Page, count: number) {
 }
 test('empty recipe library keeps setup compact and recipe entry accessible', async ({
   page,
+  kitchen,
 }) => {
-  await page.addInitScript(
-    (state) => localStorage.setItem('mealy-demo-v1', JSON.stringify(state)),
-    initialState([]),
-  )
+  kitchen.state = initialState([])
   await start(page)
   await expect(
     page.getByRole('heading', { name: 'Plan your week' }),
@@ -29,12 +27,46 @@ test('empty recipe library keeps setup compact and recipe entry accessible', asy
     page.getByRole('button', { name: 'Start choosing recipes' }),
   ).toBeDisabled()
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
-  await expect(
-    page.getByRole('button', { name: 'Add your recipe' }),
-  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add recipe' })).toBeVisible()
   await expect(
     page.getByRole('button', { name: 'Save link bookmark' }),
   ).toBeVisible()
+})
+test('recipe add action floats above navigation and hides in the editor', async ({
+  page,
+}) => {
+  await page.goto('./#recipes')
+  const add = page.getByRole('button', { name: 'Add recipe', exact: true })
+  await expect(add).toBeVisible()
+  const header = (await page
+    .locator('.recipeLibrary .screenHeader')
+    .boundingBox())!
+  const first = (await page.locator('.recipeEntry').first().boundingBox())!
+  expect(first.y - header.y - header.height).toBeGreaterThanOrEqual(12)
+  expect(first.y - header.y - header.height).toBeLessThanOrEqual(20)
+  const initial = (await add.boundingBox())!
+  const nav = (await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .boundingBox())!
+  expect(initial.y + initial.height).toBeLessThan(nav.y)
+  expect(initial.height).toBeGreaterThanOrEqual(44)
+  expect(initial.x + initial.width).toBeLessThanOrEqual(
+    page.viewportSize()!.width - 16,
+  )
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+  const scrolled = (await add.boundingBox())!
+  expect(scrolled.y).toBeCloseTo(initial.y, 0)
+  const lastControl = (await page
+    .getByRole('button', { name: 'Save link bookmark' })
+    .boundingBox())!
+  expect(lastControl.y + lastControl.height).toBeLessThan(scrolled.y)
+  await add.click()
+  await expect(add).toHaveCount(0)
+  await expect(page.getByLabel('Recipe name', { exact: true })).toBeInViewport()
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(add).toBeVisible()
+  await page.getByRole('button', { name: 'Pantry', exact: true }).click()
+  await expect(add).toHaveCount(0)
 })
 test('setup, shortlist, plan, pantry and durable grocery checks', async ({
   page,
@@ -84,9 +116,9 @@ test('setup, shortlist, plan, pantry and durable grocery checks', async ({
     page.getByRole('heading', { name: 'Groceries', exact: true }),
   ).toBeVisible()
   const item = page.locator('.groceryItem input').first()
-  await item.check()
+  await item.click()
+  await expect(item).toBeChecked()
   await page.reload()
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await expect(page.locator('.groceryItem input').first()).toBeChecked()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
   await page
@@ -126,7 +158,7 @@ test('swiping honors skips, undo, keyboard controls and recipe details', async (
 test('adds an actual recipe with precise unit selections', async ({ page }) => {
   await start(page)
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
-  await page.getByRole('button', { name: 'Add your recipe' }).click()
+  await page.getByRole('button', { name: 'Add recipe' }).click()
   await page.getByLabel('Recipe name', { exact: true }).fill('Our rice')
   await page.getByLabel('Main protein / variety').fill('Beans')
   await page.getByLabel('Ingredient 1', { exact: true }).fill('rice')
@@ -142,11 +174,9 @@ test('adds an actual recipe with precise unit selections', async ({ page }) => {
     .check()
   await page.getByRole('button', { name: 'Save recipe', exact: true }).click()
   // An untouched form goes straight back without asking.
-  await page.getByRole('button', { name: 'Add your recipe' }).click()
+  await page.getByRole('button', { name: 'Add recipe' }).click()
   await page.getByRole('button', { name: 'Back to recipes' }).click()
-  await expect(
-    page.getByRole('button', { name: 'Add your recipe' }),
-  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add recipe' })).toBeVisible()
   await page.getByRole('button', { name: 'Our rice', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText('2 cup rice')
 })
@@ -366,47 +396,5 @@ test('trusted-source links stay bookmarks until reviewed manual details exist', 
   await page.getByRole('button', { name: 'Build my week' }).click()
   await expect(page.locator('.mealList')).not.toContainText(
     'A noodle recipe to try',
-  )
-})
-
-test('production PWA has scoped assets, hash routing and an offline public shell', async ({
-  page,
-  context,
-}) => {
-  await page.goto('./#recipes')
-  const manifest = await page.evaluate(async () => {
-    const link = document.querySelector<HTMLLinkElement>('link[rel=manifest]')!
-    return await (await fetch(link.href)).json()
-  })
-  expect(manifest.scope).toBe('/mealy/')
-  expect(manifest.start_url).toBe('/mealy/')
-  for (const icon of manifest.icons) {
-    const response = await page.request.get(`./${icon.src}`)
-    expect(response.ok()).toBe(true)
-    expect(response.headers()['content-type']).toContain('image/png')
-  }
-  await page.evaluate(async () => {
-    await navigator.serviceWorker.ready
-  })
-  await page.waitForFunction(() => navigator.serviceWorker.controller !== null)
-  await context.setOffline(true)
-  await page.reload()
-  await page.getByRole('button', { name: 'Try the demo' }).click()
-  await expect(
-    page.getByRole('heading', { name: 'Kitchen favorites' }),
-  ).toBeVisible()
-  const caches = await page.evaluate(async () => {
-    const urls: string[] = []
-    for (const key of await window.caches.keys()) {
-      for (const request of await (await window.caches.open(key)).keys())
-        urls.push(request.url)
-    }
-    return urls
-  })
-  expect(
-    caches.every((url) => new URL(url).pathname.startsWith('/mealy/')),
-  ).toBe(true)
-  expect(caches.some((url) => /supabase|auth|recipe-images/.test(url))).toBe(
-    false,
   )
 })

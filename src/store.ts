@@ -1,16 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { demoRecipes } from './demo'
-import {
-  initialState,
-  stateSchema,
-  type ChangeEvent,
-  type State,
-} from './domain'
+import { stateSchema, type ChangeEvent, type State } from './domain'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
-export const configIncomplete = Boolean(url) !== Boolean(key)
 export const supabase =
   url && key
     ? createClient(url, key, {
@@ -22,14 +15,13 @@ export const supabase =
         },
       })
     : null
-const DEMO_KEY = 'mealy-demo-v1'
 type Snapshot = { state: State; version: number; household: string | null }
 
-export function useHousehold(mode: 'demo' | 'live') {
+export function useHousehold() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [connected, setConnected] = useState(mode === 'demo')
+  const [connected, setConnected] = useState(false)
   const current = useRef<Snapshot | null>(null)
   const locked = useRef(false)
   const alive = useRef(true)
@@ -40,20 +32,12 @@ export function useHousehold(mode: 'demo' | 'live') {
   }, [])
 
   const load = useCallback(async () => {
-    if (mode === 'demo') {
-      const saved = localStorage.getItem(DEMO_KEY)
-      const state = saved
-        ? stateSchema.parse(JSON.parse(saved))
-        : initialState(demoRecipes)
-      apply({ state, version: 0, household: null })
-      return
-    }
     if (!supabase) throw new Error('Supabase is not configured.')
     const membership = await supabase.rpc('my_household')
     if (membership.error) throw membership.error
     if (!membership.data)
       throw new Error(
-        'This Google account is not authorized. Ask the administrator to configure the two household emails.',
+        'This Google account is not authorized. Ask the administrator to add your email to the household allowlist.',
       )
     const { data, error } = await supabase
       .from('household_state')
@@ -68,7 +52,7 @@ export function useHousehold(mode: 'demo' | 'live') {
     }
     if (!current.current || next.version > current.current.version) apply(next)
     if (alive.current) setConnected(true)
-  }, [mode, apply])
+  }, [apply])
 
   useEffect(() => {
     alive.current = true
@@ -86,8 +70,7 @@ export function useHousehold(mode: 'demo' | 'live') {
       })
     }
     refresh()
-    const timer =
-      mode === 'live' ? window.setInterval(refresh, 4000) : undefined
+    const timer = window.setInterval(refresh, 4000)
     window.addEventListener('online', refresh)
     window.addEventListener('focus', refresh)
     return () => {
@@ -96,7 +79,7 @@ export function useHousehold(mode: 'demo' | 'live') {
       window.removeEventListener('online', refresh)
       window.removeEventListener('focus', refresh)
     }
-  }, [mode, load])
+  }, [load])
 
   const change = useCallback(
     async (
@@ -110,29 +93,24 @@ export function useHousehold(mode: 'demo' | 'live') {
       const before = current.current
       try {
         const state = stateSchema.parse(update(before.state))
-        if (mode === 'demo') {
-          localStorage.setItem(DEMO_KEY, JSON.stringify(state))
-          apply({ ...before, state })
-        } else {
-          if (!supabase) throw new Error('Supabase is not configured.')
-          const { data, error } = await supabase.rpc('save_household', {
-            p_version: before.version,
-            p_data: state,
-            p_kind: event.kind,
-            p_recipe_id: event.recipeId ?? null,
-          })
-          if (error) {
-            if (error.code === '40001') {
-              await load()
-              throw new Error(
-                'The other phone changed this week. The latest version is loaded; please repeat your action.',
-              )
-            }
-            throw error
+        if (!supabase) throw new Error('Supabase is not configured.')
+        const { data, error } = await supabase.rpc('save_household', {
+          p_version: before.version,
+          p_data: state,
+          p_kind: event.kind,
+          p_recipe_id: event.recipeId ?? null,
+        })
+        if (error) {
+          if (error.code === '40001') {
+            await load()
+            throw new Error(
+              'The other phone changed this week. The latest version is loaded; please repeat your action.',
+            )
           }
-          apply({ ...before, state, version: Number(data) })
-          setConnected(true)
+          throw error
         }
+        apply({ ...before, state, version: Number(data) })
+        setConnected(true)
         return true
       } catch (error) {
         setError(
@@ -146,7 +124,7 @@ export function useHousehold(mode: 'demo' | 'live') {
         if (alive.current) setBusy(false)
       }
     },
-    [mode, apply, load],
+    [apply, load],
   )
 
   return {
@@ -160,15 +138,6 @@ export function useHousehold(mode: 'demo' | 'live') {
     retry: () => {
       setError('')
       void load().catch((error) => setError(String(error.message ?? error)))
-    },
-    resetDemo: () => {
-      try {
-        localStorage.removeItem(DEMO_KEY)
-        apply({ state: initialState(demoRecipes), version: 0, household: null })
-        setError('')
-      } catch (error) {
-        setError(String(error))
-      }
     },
   }
 }

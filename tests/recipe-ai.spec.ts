@@ -1,13 +1,13 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from './fixtures/kitchen'
+import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 
 test('AI drafts a new recipe into the form, refines it, and saves only after review', async ({
   page,
 }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
-  await page.getByRole('button', { name: 'Add your recipe' }).click()
+  await page.getByRole('button', { name: 'Add recipe' }).click()
 
   const describe = page.getByRole('textbox', {
     name: 'Describe a recipe to add',
@@ -21,7 +21,7 @@ test('AI drafts a new recipe into the form, refines it, and saves only after rev
   )
   await expect(page.getByText('AI-drafted · not kitchen-tested')).toBeVisible()
   await expect(
-    page.getByText(/Demo mode: this is a canned example/),
+    page.getByText('Review the quantities before cooking.'),
   ).toBeVisible()
   await expect(describe).toHaveCount(0)
 
@@ -30,9 +30,7 @@ test('AI drafts a new recipe into the form, refines it, and saves only after rev
   const refine = page.getByRole('textbox', { name: 'Change this recipe' })
   await refine.fill('Add something bright')
   await page.getByRole('button', { name: 'Update recipe' }).click()
-  await expect(
-    page.getByText(/added a lemon as an example change/),
-  ).toBeVisible()
+  await expect(page.getByText('Added lemon for brightness.')).toBeVisible()
   await expect(refine).toHaveValue('')
   await expect(page.getByLabel('Recipe name', { exact: true })).toHaveValue(
     'Our bean soup',
@@ -59,14 +57,12 @@ test('AI drafts a new recipe into the form, refines it, and saves only after rev
   )
   page.once('dialog', (prompt) => void prompt.accept())
   await back.click()
-  await expect(
-    page.getByRole('button', { name: 'Add your recipe' }),
-  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add recipe' })).toBeVisible()
   await expect(
     page.getByRole('button', { name: 'Our bean soup', exact: true }),
   ).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Add your recipe' }).click()
+  await page.getByRole('button', { name: 'Add recipe' }).click()
   await page
     .getByRole('textbox', { name: 'Describe a recipe to add' })
     .fill('Bean soup')
@@ -100,16 +96,15 @@ test('AI drafts a new recipe into the form, refines it, and saves only after rev
   await expect(page.getByRole('dialog')).toContainText('30 ml olive oil')
 })
 
-async function openDemoRecipes(page: Page) {
+async function openRecipes(page: Page) {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
 }
 
 test('remixing highlights changes, can be undone, and saves as a reviewed new recipe', async ({
   page,
 }) => {
-  await openDemoRecipes(page)
+  await openRecipes(page)
   await page
     .getByRole('button', { name: 'Lemony chickpea rice', exact: true })
     .click()
@@ -133,11 +128,10 @@ test('remixing highlights changes, can be undone, and saves as a reviewed new re
     'fresh herbs',
   )
   await expect(dialog.locator('.chg-removed')).toContainText('olive oil')
-  await expect(dialog.getByText('Demo: added for freshness.')).toBeVisible()
-  // Demo recipes cannot be overwritten.
+  await expect(dialog.getByText('Added for freshness.')).toBeVisible()
   await expect(
     dialog.getByRole('button', { name: 'Replace original' }),
-  ).toHaveCount(0)
+  ).toBeVisible()
 
   expect(
     (
@@ -173,7 +167,7 @@ test('remixing highlights changes, can be undone, and saves as a reviewed new re
 })
 
 test('closing an unsaved remix asks first', async ({ page }) => {
-  await openDemoRecipes(page)
+  await openRecipes(page)
   await page
     .getByRole('button', { name: 'Lemony chickpea rice', exact: true })
     .click()
@@ -195,8 +189,8 @@ test('closing an unsaved remix asks first', async ({ page }) => {
 test('a remix can replace a household recipe after review', async ({
   page,
 }) => {
-  await openDemoRecipes(page)
-  await page.getByRole('button', { name: 'Add your recipe' }).click()
+  await openRecipes(page)
+  await page.getByRole('button', { name: 'Add recipe' }).click()
   await page
     .getByRole('textbox', { name: 'Describe a recipe to add' })
     .fill('Bean soup')
@@ -237,7 +231,6 @@ test('the full recipe card can pin a planned recipe and mark it loved', async ({
   page,
 }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await page.getByRole('button', { name: 'Start choosing recipes' }).click()
   for (let i = 1; i <= 3; i++) {
     await page.getByRole('button', { name: 'Appealing this week' }).click()
@@ -293,7 +286,6 @@ test('a remix saved from the plan takes its slot pinned, and cannot be pinned or
   page,
 }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Try the demo' }).click()
   await page.getByRole('button', { name: 'Start choosing recipes' }).click()
   for (let i = 1; i <= 3; i++) {
     await page.getByRole('button', { name: 'Appealing this week' }).click()
