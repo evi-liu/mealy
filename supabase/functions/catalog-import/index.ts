@@ -1,12 +1,15 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 // Importer for the private recipe catalog. Called hourly by pg_cron. For each
-// site any household follows, it preloads up to PRELOAD recipes in small
+// site any household follows, it preloads up to its preload limit in small
 // batches, then checks the site's sitemap at most weekly for posts newer than
 // its watermark. Stores each recipe's facts and directions, never photographs
 // or narrative text.
 type Source = string
-const PRELOAD = 100
+// The two original sources preload 100 recipes; sites households add, 50.
+const ORIGINAL_SOURCES = ['tiffycooks.com', 'thewoksoflife.com']
+const preloadFor = (source: string) =>
+  ORIGINAL_SOURCES.includes(source) ? 100 : 50
 const BACKFILL = 10
 const BATCH = 15
 // Just under a week, so each Saturday's first run counts as due.
@@ -61,6 +64,65 @@ async function fetchText(url: string, source: Source): Promise<string> {
 }
 
 type Entry = { url: string; lastmod: string | null }
+
+/**
+ * The site's robots.txt rules for this importer: the group naming
+ * MealyHouseholdPlanner if there is one, otherwise the "*" group. Longest
+ * matching rule wins; Allow wins ties. A missing file allows everything.
+ */
+async function robotsRules(source: Source) {
+  let text = ''
+  try {
+    text = await fetchText(`https://${source}/robots.txt`, source)
+  } catch {
+    return () => true
+  }
+  const groups: { agents: string[]; rules: [boolean, string][] }[] = []
+  let current: (typeof groups)[number] | null = null
+  let inAgents = false
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/#.*/, '').trim()
+    const match = /^(user-agent|allow|disallow)\s*:\s*(.*)$/i.exec(line)
+    if (!match) continue
+    const field = match[1].toLowerCase()
+    const value = match[2].trim()
+    if (field === 'user-agent') {
+      if (!current || !inAgents) {
+        current = { agents: [], rules: [] }
+        groups.push(current)
+      }
+      current.agents.push(value.toLowerCase())
+      inAgents = true
+    } else if (current) {
+      inAgents = false
+      if (value) current.rules.push([field === 'allow', value])
+    }
+  }
+  // Rules naming this importer win; otherwise every "*" group applies.
+  const named = groups.filter((g) =>
+    g.agents.some((a) => a !== '*' && 'mealyhouseholdplanner'.startsWith(a)),
+  )
+  const rules = (
+    named.length ? named : groups.filter((g) => g.agents.includes('*'))
+  ).flatMap((g) => g.rules)
+  const pattern = (rule: string) =>
+    new RegExp(
+      '^' +
+        rule
+          .split('*')
+          .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+          .join('.*')
+          .replace(/\\\$$/, '$'),
+    )
+  return (path: string) => {
+    let best: [boolean, number] = [true, -1]
+    for (const [allow, rule] of rules) {
+      const longer = rule.length > best[1] || (rule.length === best[1] && allow)
+      if (longer && pattern(rule).test(path)) best = [allow, rule.length]
+    }
+    return best[0]
+  }
+}
 
 const locs = (xml: string) =>
   [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g)].map((m) => m[1])
@@ -256,6 +318,7 @@ Deno.serve(async (req: Request) => {
         .select('watermark, checked_at')
         .eq('source', source)
         .maybeSingle()
+      const PRELOAD = preloadFor(source)
       const preloading = (count ?? 0) < PRELOAD
       const due =
         !progress?.checked_at ||
@@ -264,7 +327,14 @@ Deno.serve(async (req: Request) => {
         summary[source] = { skipped: 'checked this week' }
         continue
       }
-      const entries = await sitemapEntries(source)
+      const allowed = await robotsRules(source)
+      if (!allowed('/')) {
+        summary[source] = { skipped: 'robots.txt disallows this importer' }
+        continue
+      }
+      const entries = (await sitemapEntries(source)).filter((entry) =>
+        allowed(new URL(entry.url).pathname),
+      )
       const { data: seenRows } = await admin
         .from('catalog_pages')
         .select('url')
