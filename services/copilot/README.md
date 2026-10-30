@@ -30,11 +30,20 @@ the official `@github/copilot-sdk`, not an OpenAI key or an undocumented endpoin
 ```sh
 cd services/copilot
 npm ci
-cp .env.example .env
-# Fill the ignored .env privately after account/policy approval.
+npm run configure
+# Enter the token at the hidden terminal prompt, never in chat.
+# Choose an account-listed model. Then fill MEALY_HOUSEHOLD_ID privately in .env.
 npm test
 npm start
 ```
+
+The interactive macOS/Linux setup checks identity and lists models without
+generating anything. It accepts a fine-grained personal token with the
+**Copilot Requests** account permission, refuses a mismatched username, and
+creates an ignored `.env` with owner-only permissions without overwriting an
+existing file. The household ID remains blank until explicitly configured.
+For managed hosting, use the platform's secret controls and `.env.example`
+as the list of required variable names instead.
 
 `npm test` builds and uses only mocked model calls. `npm start` starts the SDK
 runtime and checks identity/model availability, but does not generate a recipe.

@@ -1,7 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { CopilotClient } from '@github/copilot-sdk'
+import { createConnection } from './connection.js'
 import { createGateway } from './server.js'
 import { createGenerator } from './runtime.js'
 
@@ -25,31 +22,14 @@ async function main() {
   const port = Number(process.env.PORT ?? '8787')
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new ConfigurationError('Invalid PORT.')
-  const directory = await mkdtemp(join(tmpdir(), 'mealy-copilot-'))
-  const client = new CopilotClient({
-    mode: 'empty',
-    gitHubToken: token,
-    useLoggedInUser: false,
-    workingDirectory: directory,
-    baseDirectory: directory,
-    logLevel: 'none',
-    env: {
-      PATH: process.env.PATH,
-      HOME: directory,
-      TMPDIR: directory,
-      COPILOT_GITHUB_TELEMETRY_DISABLED: 'true',
-    },
-  })
+  const { client, dispose } = await createConnection(token)
   let server: ReturnType<typeof createGateway> | undefined
   let stopping = false
   async function stop() {
     if (stopping) return
     stopping = true
     server?.close()
-    const errors = await client.stop()
-    if (errors.length) console.error('Copilot runtime shutdown failed')
-    // Only the unique temporary directory created by this process is removed.
-    await rm(directory, { recursive: true, force: true })
+    await dispose()
   }
   try {
     await client.start()

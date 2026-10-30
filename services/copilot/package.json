@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "configure": "npm run build && bash configure.sh",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "test": "npm run build && node --test dist/*.test.js"
   },

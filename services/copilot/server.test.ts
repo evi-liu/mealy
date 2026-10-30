@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import {
   createGateway,
   ServiceError,
@@ -35,6 +36,22 @@ test('startup refuses missing credentials without borrowing a local login', () =
   )
   assert.equal(result.status, 1)
   assert.match(result.stderr, /Configure COPILOT_GITHUB_TOKEN/)
+})
+
+test('setup rejects piped credentials without echoing them', () => {
+  const secret = 'github_pat_test_fixture_not_a_real_credential'
+  const result = spawnSync(
+    'bash',
+    [fileURLToPath(new URL('../configure.sh', import.meta.url))],
+    {
+      input: `test-user\n${secret}\n`,
+      encoding: 'utf8',
+      timeout: 10000,
+    },
+  )
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /interactive terminal/)
+  assert(!`${result.stdout}${result.stderr}`.includes(secret))
 })
 
 async function setup(generate: Generate, run: (url: string) => Promise<void>) {
