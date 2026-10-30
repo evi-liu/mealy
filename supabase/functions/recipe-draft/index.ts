@@ -158,6 +158,21 @@ Rules:
 - If the request is not a food recipe, is unsafe, or would turn the dish into something unrelated to the base, set "declined" to a short, friendly reason and return the base unchanged (or a minimal valid recipe when there is no base). Otherwise "declined" is null.
 Remix: when the input has "original" (the household's saved recipe), you are remixing it. Without a base, start from the original. Make the requested changes and keep the dish recognizably itself; do not make unrequested changes beyond what the request needs (e.g. adjusting cooking time for a swapped protein). "original.sourceLines" are the source's ingredient lines and "original.unresolved" lists ingredients whose amounts the household has not confirmed yet; use them as context and choose sensible amounts. If the original has no steps, write concise steps in your own words; never reproduce a publisher's wording. In remix mode give up to 10 notes, one per meaningful change, each with a target: the affected ingredient name exactly as written in your recipe (or the original name for a removed ingredient), "step N" (1-based, in your recipe), or a field name (title, description, servings, maxServings, minutes, protein, leftovers, potluck). Use a null target for a general note.`
 
+/** Explains OpenAI failures in terms the household can act on. */
+async function providerError(response: Response, unchanged: string) {
+  const body = await response.json().catch(() => null)
+  const code = body?.error?.code ?? body?.error?.type
+  if (response.status === 429 && code === 'insufficient_quota')
+    return `OpenAI says this API key has no remaining credit. Add billing at platform.openai.com, then try again. ${unchanged}`
+  if (response.status === 429)
+    return `OpenAI is limiting requests right now. Wait a minute and try again. ${unchanged}`
+  if (response.status === 401)
+    return `OpenAI rejected the API key. Check OPENAI_API_KEY in Supabase. ${unchanged}`
+  if (response.status === 404 || code === 'model_not_found')
+    return `OpenAI doesn't offer the model set in OPENAI_MODEL to this account. ${unchanged}`
+  return `AI provider returned ${response.status}. ${unchanged}`
+}
+
 Deno.serve(async (req: Request) => {
   const allowedOrigin = Deno.env.get('APP_ORIGIN')
   const origin = req.headers.get('origin')
@@ -304,7 +319,7 @@ Deno.serve(async (req: Request) => {
     if (!response.ok) {
       console.error('OpenAI drafting failed', response.status)
       return respond(502, {
-        error: `AI provider returned ${response.status}. Your draft has not changed.`,
+        error: await providerError(response, 'Your draft has not changed.'),
       })
     }
     const output = await response.json()

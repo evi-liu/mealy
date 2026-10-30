@@ -1496,3 +1496,7 @@ ul.changeList {
   width: auto;
   margin: 0;
 }
+.requestRow:last-child,
+.memberRow:last-child {
+  border-bottom: 0;
+}

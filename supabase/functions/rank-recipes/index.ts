@@ -7,6 +7,21 @@ const resultSchema = z.object({
     .max(12),
 })
 
+/** Explains OpenAI failures in terms the household can act on. */
+async function providerError(response: Response, unchanged: string) {
+  const body = await response.json().catch(() => null)
+  const code = body?.error?.code ?? body?.error?.type
+  if (response.status === 429 && code === 'insufficient_quota')
+    return `OpenAI says this API key has no remaining credit. Add billing at platform.openai.com, then try again. ${unchanged}`
+  if (response.status === 429)
+    return `OpenAI is limiting requests right now. Wait a minute and try again. ${unchanged}`
+  if (response.status === 401)
+    return `OpenAI rejected the API key. Check OPENAI_API_KEY in Supabase. ${unchanged}`
+  if (response.status === 404 || code === 'model_not_found')
+    return `OpenAI doesn't offer the model set in OPENAI_MODEL to this account. ${unchanged}`
+  return `AI provider returned ${response.status}. ${unchanged}`
+}
+
 Deno.serve(async (req: Request) => {
   const allowedOrigin = Deno.env.get('APP_ORIGIN')
   const origin = req.headers.get('origin')
@@ -138,7 +153,7 @@ Deno.serve(async (req: Request) => {
     if (!response.ok) {
       console.error('OpenAI ranking failed', response.status)
       return respond(502, {
-        error: `AI provider returned ${response.status}. Your shortlist has not changed.`,
+        error: await providerError(response, 'Your shortlist has not changed.'),
       })
     }
     const output = await response.json()
