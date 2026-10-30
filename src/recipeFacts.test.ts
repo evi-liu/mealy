@@ -130,7 +130,7 @@ describe('facts-only recipe snapshots', () => {
     expect(() => swapRecipe(state, 0, recipe.id)).toThrow('different liked')
   })
 
-  it('requires source attribution and keeps existing own-recipe instruction validation', () => {
+  it('requires source attribution, allows imported directions, keeps own-recipe validation', () => {
     const pending = tiffyRecipeFacts[0]
     expect(
       recipeSchema.safeParse({
@@ -141,12 +141,13 @@ describe('facts-only recipe snapshots', () => {
     expect(
       recipeSchema.safeParse({ ...pending, sourceUrl: undefined }).success,
     ).toBe(false)
+    // Source-linked recipes may now carry their imported directions.
     expect(
       recipeSchema.safeParse({
         ...pending,
-        instructions: ['Copied directions'],
+        instructions: ['Imported directions'],
       }).success,
-    ).toBe(false)
+    ).toBe(true)
     expect(
       recipeSchema.safeParse({ ...demoRecipes[0], instructions: [] }).success,
     ).toBe(false)

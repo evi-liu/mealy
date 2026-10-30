@@ -98,6 +98,16 @@ beforeAll(async () => {
       'utf8',
     ),
   )
+  for (const file of [
+    '202610300005_catalog_directions.sql',
+    '202610300006_household_sources.sql',
+  ])
+    await db.exec(
+      await readFile(
+        new URL(`../supabase/migrations/${file}`, import.meta.url),
+        'utf8',
+      ),
+    )
   await db.exec(`
     insert into public.catalog_recipes(id, source, url, title, servings, minutes, ingredient_lines)
     values ('tiffycooks:test', 'tiffycooks.com', 'https://tiffycooks.com/test/', 'Test noodles', 4, 20, '["1 tbsp soy sauce"]');
@@ -519,6 +529,59 @@ describe('actual migration on embedded PostgreSQL', () => {
     })
   })
 
+  it('shows each household only the catalog recipes from its own sources', async () => {
+    await db.exec(`
+      insert into public.catalog_recipes(id, source, url, title, ingredient_lines, instructions)
+      values ('example:pie', 'example.com', 'https://example.com/pie/', 'Pie', '["1 egg"]', '["Bake."]');
+    `)
+    await asUser(alice, async () => {
+      const visible = async () =>
+        (
+          await db.query<{ id: string }>(
+            'select id from public.catalog_recipes order by id',
+          )
+        ).rows.map((row) => row.id)
+      // Existing households start with the two original sites.
+      expect(await visible()).toEqual(['tiffycooks:test'])
+      expect(
+        (
+          await db.query<{ add_source: string }>(
+            "select public.add_source('https://www.Example.com/recipes/')",
+          )
+        ).rows[0].add_source,
+      ).toBe('example.com')
+      expect(await visible()).toEqual(['example:pie', 'tiffycooks:test'])
+      for (const bad of [
+        'not a url',
+        'https://127.0.0.1/',
+        'ftp://example.org',
+      ])
+        await expect(
+          db.query('select public.add_source($1)', [bad]),
+        ).rejects.toThrow('web address of a recipe site')
+      await db.query("select public.remove_source('tiffycooks.com')")
+      expect(await visible()).toEqual(['example:pie'])
+      await expect(
+        db.query(
+          "insert into public.household_sources(household_id, domain) values ($1, 'evil.com')",
+          [householdA],
+        ),
+      ).rejects.toThrow('permission denied')
+    })
+    // Another household's sources are invisible and unaffected.
+    await asUser(carol, async () => {
+      expect(
+        (
+          await db.query<{ domain: string }>(
+            'select domain from public.household_sources order by domain',
+          )
+        ).rows.map((row) => row.domain),
+      ).toEqual(['thewoksoflife.com', 'tiffycooks.com'])
+      expect(
+        (await db.query('select id from public.catalog_recipes')).rows,
+      ).toEqual([{ id: 'tiffycooks:test' }])
+    })
+  })
   it('revokes access immediately when an allowlist entry is removed', async () => {
     await db.exec(
       `delete from public.household_access where email='two@example.test'`,

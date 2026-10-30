@@ -59,6 +59,8 @@ textarea:focus-visible {
 input,
 textarea,
 select {
+  /* One size for every text field, wherever it sits. */
+  font-size: 14px;
   max-width: 100%;
   border: 1px solid #b9ad9c;
   border-radius: 10px;
@@ -1499,4 +1501,7 @@ ul.changeList {
 .requestRow:last-child,
 .memberRow:last-child {
   border-bottom: 0;
+}
+.addSource {
+  margin-top: 12px;
 }

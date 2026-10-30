@@ -118,6 +118,17 @@ export const householdApi = {
       requested: row.requested,
     }))
   },
+  async sources(): Promise<string[]> {
+    const { data, error } = await client()
+      .from('household_sources')
+      .select('domain')
+      .order('added_at')
+    if (error) throw new Error(error.message)
+    return (data ?? []).map((row) => row.domain as string)
+  },
+  addSource: (url: string) => call<string>('add_source', { p_url: url }),
+  removeSource: (domain: string) =>
+    call<null>('remove_source', { p_domain: domain }),
   request: (userId: string) =>
     call<string>('request_member', { p_user: userId }),
   withdraw: (id: string) => call<null>('withdraw_request', { p_id: id }),

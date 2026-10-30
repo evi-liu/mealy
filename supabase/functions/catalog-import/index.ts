@@ -1,15 +1,13 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
-// Facts-only importer for the trusted-source recipe catalog. Called hourly by
-// pg_cron; preloads up to PRELOAD recipes per site in small batches, then
-// checks each site's sitemap at most weekly for posts newer than its
-// watermark. Never stores directions, descriptions or photographs.
-const SOURCES = {
-  'tiffycooks.com': { short: 'tiffycooks' },
-  'thewoksoflife.com': { short: 'thewoksoflife' },
-} as const
-type Source = keyof typeof SOURCES
+// Importer for the private recipe catalog. Called hourly by pg_cron. For each
+// site any household follows, it preloads up to PRELOAD recipes in small
+// batches, then checks the site's sitemap at most weekly for posts newer than
+// its watermark. Stores each recipe's facts and directions, never photographs
+// or narrative text.
+type Source = string
 const PRELOAD = 100
+const BACKFILL = 10
 const BATCH = 15
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 const DELAY_MS = 1500
@@ -63,15 +61,40 @@ async function fetchText(url: string, source: Source): Promise<string> {
 
 type Entry = { url: string; lastmod: string | null }
 
-/** Post URLs from the Yoast sitemap index, newest first. */
+const locs = (xml: string) =>
+  [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g)].map((m) => m[1])
+
+/**
+ * Candidate post URLs from the site's sitemap, newest first. Prefers post or
+ * recipe sitemaps in an index, skipping pages, categories, tags and authors.
+ */
 async function sitemapEntries(source: Source): Promise<Entry[]> {
-  const index = await fetchText(`https://${source}/sitemap_index.xml`, source)
-  const maps = [...index.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g)]
-    .map((m) => m[1])
-    .filter((loc) => /\/post-sitemap\d*\.xml$/.test(loc))
+  let root = ''
+  for (const path of ['/sitemap_index.xml', '/sitemap.xml']) {
+    try {
+      root = await fetchText(`https://${source}${path}`, source)
+      if (/<(sitemapindex|urlset)\b/.test(root)) break
+    } catch {
+      root = ''
+    }
+  }
+  if (!/<(sitemapindex|urlset)\b/.test(root))
+    throw new Error('No sitemap found')
+  let maps = /<sitemapindex\b/.test(root) ? locs(root) : []
+  const posts = maps.filter((loc) => /(post|recipe)[^/]*sitemap/i.test(loc))
+  maps = (
+    posts.length
+      ? posts
+      : maps.filter(
+          (loc) =>
+            !/(page|categor|tag|author|image|video)[^/]*sitemap/i.test(loc),
+        )
+  ).slice(0, 10)
+  const documents = maps.length
+    ? await Promise.all(maps.map((map) => fetchText(map, source)))
+    : [root]
   const entries: Entry[] = []
-  for (const map of maps) {
-    const xml = await fetchText(map, source)
+  for (const xml of documents) {
     for (const block of xml.matchAll(/<url>([\s\S]*?)<\/url>/g)) {
       const loc = /<loc>\s*([^<\s]+)\s*<\/loc>/.exec(block[1])?.[1]
       if (!loc || new URL(loc).pathname === '/' || /\/blog\/?$/.test(loc))
@@ -135,7 +158,19 @@ const list = (value: unknown) =>
     .map(plain)
     .filter(Boolean)
 
-/** The page's single structured recipe, reduced to facts. */
+/** Steps from recipeInstructions: strings, HowToSteps or HowToSections. */
+function steps(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(steps)
+  if (typeof value === 'string')
+    return value.split(/\n+/).map(plain).filter(Boolean)
+  if (!value || typeof value !== 'object') return []
+  const node = value as Record<string, unknown>
+  if (node.itemListElement) return steps(node.itemListElement)
+  const text = plain(node.text ?? node.name)
+  return text ? [text] : []
+}
+
+/** The page's single structured recipe: facts and directions. */
 function extractFacts(html: string) {
   const found: Record<string, unknown>[] = []
   for (const match of html.matchAll(
@@ -165,6 +200,9 @@ function extractFacts(html: string) {
     servings: servings ?? null,
     minutes: minutes && minutes <= 1440 ? minutes : null,
     ingredient_lines: ingredients.map((line) => line.slice(0, 500)),
+    instructions: steps(recipe.recipeInstructions)
+      .slice(0, 40)
+      .map((step) => step.slice(0, 2000)),
     categories: [
       ...list(recipe.recipeCategory),
       ...list(recipe.recipeCuisine),
@@ -196,7 +234,12 @@ Deno.serve(async (req: Request) => {
     { auth: { persistSession: false } },
   )
   const summary: Record<string, unknown> = {}
-  for (const source of Object.keys(SOURCES) as Source[]) {
+  const { data: followed, error: sourcesError } = await admin
+    .from('household_sources')
+    .select('domain')
+  if (sourcesError) return respond(500, { error: 'Could not read sources.' })
+  const sources = [...new Set((followed ?? []).map((row) => row.domain))]
+  for (const source of sources) {
     try {
       const { count } = await admin
         .from('catalog_recipes')
@@ -240,7 +283,7 @@ Deno.serve(async (req: Request) => {
               .replace(/^\/|\/$/g, '')
               .slice(0, 150)
             const { error } = await admin.from('catalog_recipes').upsert({
-              id: `${SOURCES[source].short}:${slug}`,
+              id: `${source.replace(/\.com$/, '').replace(/\./g, '-')}:${slug}`,
               source,
               url: entry.url,
               ...facts,
@@ -266,6 +309,33 @@ Deno.serve(async (req: Request) => {
           checked_at: new Date().toISOString(),
         })
       }
+      // Recipes imported before directions were kept get them now.
+      const { data: missing } = await admin
+        .from('catalog_recipes')
+        .select('id, url')
+        .eq('source', source)
+        .eq('instructions', '[]')
+        .limit(BACKFILL)
+      let backfilled = 0
+      for (const row of missing ?? []) {
+        await sleep(DELAY_MS)
+        try {
+          const facts = extractFacts(await fetchText(row.url, source))
+          if (facts?.instructions.length) {
+            await admin
+              .from('catalog_recipes')
+              .update({ instructions: facts.instructions })
+              .eq('id', row.id)
+            backfilled++
+          }
+        } catch (error) {
+          console.error(
+            'Directions backfill failed',
+            source,
+            error instanceof Error ? error.message : error,
+          )
+        }
+      }
       const newest = entries[0]?.lastmod ?? watermark
       // The weekly clock only starts once the preload is finished.
       if (
@@ -278,7 +348,12 @@ Deno.serve(async (req: Request) => {
           watermark: newest,
           checked_at: new Date().toISOString(),
         })
-      summary[source] = { preloading, looked: todo.length, imported }
+      summary[source] = {
+        preloading,
+        looked: todo.length,
+        imported,
+        backfilled,
+      }
     } catch (error) {
       console.error(
         'Catalog source failed',

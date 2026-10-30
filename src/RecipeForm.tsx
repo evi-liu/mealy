@@ -177,12 +177,10 @@ export function RecipeForm({
           }
         : undefined,
       ingredients,
-      instructions: reference
-        ? []
-        : String(form.get('instructions'))
-            .split('\n')
-            .map((s) => s.trim())
-            .filter(Boolean),
+      instructions: String(form.get('instructions') ?? '')
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean),
       imagePath: recipe?.imagePath,
       aiDraft,
     })
@@ -253,7 +251,7 @@ export function RecipeForm({
       </h2>
       <p className="helper">
         {reference
-          ? 'Review the source quantities and your batch capacity before planning. Directions stay on the original website; no instructions or photos were imported.'
+          ? 'Review the imported quantities, directions and your batch capacity before planning.'
           : 'Use your own recipe or content you have permission to save. All quantities describe the original batch.'}
       </p>
       {bookmark && (
@@ -529,25 +527,24 @@ export function RecipeForm({
         >
           <Plus size={18} /> Add ingredient
         </Button>
-        {reference && recipe.sourceUrl ? (
+        <label>
+          Instructions (one step per line)
+          <textarea
+            name="instructions"
+            rows={6}
+            required={!reference}
+            defaultValue={values?.instructions.join('\n')}
+          />
+        </label>
+        {reference && recipe.sourceUrl && (
           <a
             className="secondaryButton"
             href={recipe.sourceUrl}
             target="_blank"
             rel="noopener noreferrer"
           >
-            Read cooking directions on {sourceName(recipe.sourceUrl)}
+            View the original on {sourceName(recipe.sourceUrl)}
           </a>
-        ) : (
-          <label>
-            Instructions (one step per line)
-            <textarea
-              name="instructions"
-              rows={6}
-              required
-              defaultValue={values?.instructions.join('\n')}
-            />
-          </label>
         )}
         <label className="checkLabel">
           <input type="checkbox" required />

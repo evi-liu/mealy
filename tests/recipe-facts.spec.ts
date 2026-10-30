@@ -19,7 +19,13 @@ test('imports source facts, reviews a recipe and plans only reviewed quantities'
   await page
     .getByRole('button', { name: 'Add recipe facts for 10 Tiffy Cooks links' })
     .click()
-  await expect(page.locator('.recipeEntry')).toHaveCount(10)
+  // Unreviewed imports wait in the review list, not Kitchen favorites.
+  await expect(page.getByText(/10 need a quick review/)).toBeVisible()
+  await expect(
+    page
+      .locator('.catalogSection')
+      .getByRole('button', { name: 'Review details' }),
+  ).toHaveCount(6)
   expect(
     (
       await new AxeBuilder({ page })
@@ -38,24 +44,12 @@ test('imports source facts, reviews a recipe and plans only reviewed quantities'
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
   const salmon = tiffyRecipeFacts[5]
   const row = page.locator('.recipeEntry').filter({ hasText: salmon.title })
-  await row.locator('.recipeTitle').click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toContainText('2 servings')
-  await expect(
-    dialog.getByRole('heading', { name: 'Method', exact: true }),
-  ).toHaveCount(0)
-  await expect(
-    dialog.getByRole('link', {
-      name: 'Read cooking directions on Tiffy Cooks',
-    }),
-  ).toHaveAttribute('href', salmon.sourceUrl!)
-  await expect(dialog.locator('img')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Close recipe' }).click()
   await row.getByRole('button', { name: 'Review details' }).click()
   await expect(page.getByLabel('Max batch servings')).toHaveValue('2')
-  await expect(page.getByLabel('Instructions (one step per line)')).toHaveCount(
-    0,
-  )
+  // Directions are optional for an import and can be added here.
+  await expect(
+    page.getByLabel('Instructions (one step per line)'),
+  ).not.toHaveAttribute('required', '')
   expect(
     (
       await new AxeBuilder({ page })

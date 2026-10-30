@@ -112,13 +112,6 @@ export const recipeSchema = z
           code: 'custom',
           message: 'Imported facts require a source link and provenance.',
         })
-      if (recipe.instructions.length)
-        ctx.addIssue({
-          code: 'custom',
-          path: ['instructions'],
-          message:
-            'Source-linked recipes keep their directions on the original website.',
-        })
       if (recipe.facts?.pendingIngredients.length && !recipe.facts.needsReview)
         ctx.addIssue({
           code: 'custom',

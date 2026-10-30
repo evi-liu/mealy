@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@base-ui/react/button'
 import { Check, LogOut, Plus, Search, UserRound, X } from 'lucide-react'
 import { supabase } from './store'
+import { sourceName } from './domain'
 import { useConfirm } from './confirm'
 import {
   householdApi,
@@ -369,6 +370,86 @@ function SignOut({ live, exit }: { live: boolean; exit: () => void }) {
   )
 }
 
+/** The recipe sites this household's catalog draws from. */
+function SourcesCard() {
+  const [sources, setSources] = useState<string[] | null>(null)
+  const [error, setError] = useState('')
+  const load = useCallback(() => {
+    householdApi
+      .sources()
+      .then(setSources)
+      .catch((e) => setError(message(e)))
+  }, [])
+  useEffect(load, [load])
+  async function act(action: () => Promise<unknown>) {
+    setError('')
+    try {
+      await action()
+      load()
+      return true
+    } catch (e) {
+      setError(message(e))
+      return false
+    }
+  }
+  return (
+    <section className="profileCard" aria-labelledby="sources-heading">
+      <span className="eyebrow">RECIPE CATALOG</span>
+      <h2 id="sources-heading">Recipe sources</h2>
+      <p className="helper">
+        Sites your swipe stack draws from. Mealy imports their newest recipes,
+        ingredients and directions included, then checks weekly for new ones. A
+        new site's recipes appear within a few hours.
+      </p>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {sources?.map((domain) => (
+        <div className="memberRow" key={domain}>
+          <span className="memberName">
+            <strong>{sourceName(`https://${domain}/`)}</strong>
+            <small>{domain}</small>
+          </span>
+          <Button
+            className="iconButton"
+            aria-label={`Remove ${domain}`}
+            onClick={() => void act(() => householdApi.removeSource(domain))}
+          >
+            <X size={17} />
+          </Button>
+        </div>
+      ))}
+      {sources?.length === 0 && (
+        <p className="helper">No sources yet. Add a recipe site below.</p>
+      )}
+      <form
+        className="renameForm addSource"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          const form = e.currentTarget
+          const url = String(new FormData(form).get('url'))
+          if (await act(() => householdApi.addSource(url))) form.reset()
+        }}
+      >
+        <input
+          name="url"
+          type="url"
+          aria-label="Recipe site address"
+          placeholder="https://example.com"
+          required
+          maxLength={300}
+          autoComplete="off"
+        />
+        <Button className="primaryButton" type="submit">
+          <Plus size={17} /> Add
+        </Button>
+      </form>
+    </section>
+  )
+}
+
 export function ProfileScreen({
   live,
   onHouseholdChanged,
@@ -392,6 +473,7 @@ export function ProfileScreen({
           <MeCard me={me} />
           <RequestsInbox onJoined={onHouseholdChanged} />
           <HouseholdCard onLeft={onHouseholdChanged} />
+          <SourcesCard />
         </>
       ) : (
         <section className="profileCard">

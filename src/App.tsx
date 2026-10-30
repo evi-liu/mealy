@@ -1070,7 +1070,15 @@ function Pantry({
   )
 }
 
-const sourcesLabel = 'TIFFY COOKS & THE WOKS OF LIFE'
+const sourcesLabel = 'YOUR RECIPE SOURCES'
+
+/**
+ * Kitchen favorites: what the household added, reviewed or remixed, plus
+ * anything loved. Catalog copies and unreviewed imports live in the stack.
+ */
+const isFavorite = (recipe: Recipe, state: State) =>
+  state.loved.includes(recipe.id) ||
+  (!recipe.catalogId && !recipe.facts?.needsReview)
 
 /** The shared catalog: counts, plus imports waiting for a quick review. */
 function CatalogSection({
@@ -1083,18 +1091,25 @@ function CatalogSection({
   onReview: (recipe: Recipe) => void
 }) {
   const [shown, setShown] = useState(6)
-  if (!catalog.loaded || (!catalog.ready.length && !catalog.review.length))
+  // Older source-fact imports the household never reviewed wait here too.
+  const unreviewed = state.recipes.filter(
+    (r) => r.facts?.needsReview && !isFavorite(r, state),
+  )
+  if (
+    !unreviewed.length &&
+    (!catalog.loaded || (!catalog.ready.length && !catalog.review.length))
+  )
     return catalog.error ? <p className="error">{catalog.error}</p> : null
   const ready = unsaved(catalog.ready, state).length
-  const review = unsaved(catalog.review, state)
+  const review = [...unreviewed, ...unsaved(catalog.review, state)]
   return (
     <section className="catalogSection" aria-labelledby="catalog-heading">
       <span className="eyebrow">FROM {sourcesLabel}</span>
       <h2 id="catalog-heading">Recipe catalog</h2>
       <p className="helper">
         {ready} ready for your swipe stack · {review.length} need a quick
-        review. New recipes arrive weekly. Only ingredient facts are imported;
-        directions stay on the source sites. Ready imports start
+        review. New recipes arrive weekly from the sites in Profile → Recipe
+        sources, with their ingredients and directions. Ready imports start
         leftover-friendly with a maximum batch of twice the published yield;
         adjust any recipe after you like it.
       </p>
@@ -1277,80 +1292,83 @@ function Recipes({
           >
             <Plus size={18} /> Add your recipe
           </Button>
-          {state.recipes.map((recipe) => (
-            <article className="mealRow recipeEntry" key={recipe.id}>
-              <span className="eyebrow">
-                {recipe.source === 'demo'
-                  ? 'DEMO'
-                  : recipe.aiDraft
-                    ? 'AI-DRAFTED'
-                    : recipe.source === 'reference' && recipe.sourceUrl
-                      ? sourceName(recipe.sourceUrl)
-                      : 'YOUR RECIPE'}
-              </span>
-              <Button className="recipeTitle" onClick={() => details(recipe)}>
-                {recipe.title}
-                <ArrowRight size={17} />
-              </Button>
-              <p>
-                Makes {recipe.servings} · max batch {recipe.maxServings} ·{' '}
-                {recipe.minutes} min
-              </p>
-              {recipe.facts?.needsReview && (
-                <p className="helper">
-                  Review before planning
-                  {recipe.facts.pendingIngredients.length
-                    ? ` · ${recipe.facts.pendingIngredients.length} ingredient amounts need attention`
-                    : ' · confirm your batch size and leftover suitability'}
+          {state.recipes
+            .filter((r) => isFavorite(r, state))
+            .map((recipe) => (
+              <article className="mealRow recipeEntry" key={recipe.id}>
+                <span className="eyebrow">
+                  {recipe.source === 'demo'
+                    ? 'DEMO'
+                    : recipe.aiDraft
+                      ? 'AI-DRAFTED'
+                      : recipe.source === 'reference' && recipe.sourceUrl
+                        ? sourceName(recipe.sourceUrl)
+                        : 'YOUR RECIPE'}
+                </span>
+                <Button className="recipeTitle" onClick={() => details(recipe)}>
+                  {recipe.title}
+                  <ArrowRight size={17} />
+                </Button>
+                <p>
+                  Makes {recipe.servings} · max batch {recipe.maxServings} ·{' '}
+                  {recipe.minutes} min
                 </p>
-              )}
-              <div className="buttonRow">
-                {recipe.source !== 'demo' && (
-                  <Button
-                    className="textButton"
-                    onClick={() => {
-                      setBaseline(recipe)
-                      setEditing(recipe)
-                    }}
-                  >
-                    {recipe.facts?.needsReview ? 'Review details' : 'Edit'}
-                  </Button>
+                {recipe.facts?.needsReview && (
+                  <p className="helper">
+                    Review before planning
+                    {recipe.facts.pendingIngredients.length
+                      ? ` · ${recipe.facts.pendingIngredients.length} ingredient amounts need attention`
+                      : ' · confirm your batch size and leftover suitability'}
+                  </p>
                 )}
-                {state.blocked.includes(recipe.id) && (
-                  <Button
-                    className="textButton"
-                    onClick={() =>
-                      void store.change(
-                        (s) => ({
-                          ...s,
-                          blocked: s.blocked.filter((id) => id !== recipe.id),
-                        }),
-                        { kind: 'unblock', recipeId: recipe.id },
+                <div className="buttonRow">
+                  {recipe.source !== 'demo' && (
+                    <Button
+                      className="textButton"
+                      onClick={() => {
+                        setBaseline(recipe)
+                        setEditing(recipe)
+                      }}
+                    >
+                      {recipe.facts?.needsReview ? 'Review details' : 'Edit'}
+                    </Button>
+                  )}
+                  {state.blocked.includes(recipe.id) && (
+                    <Button
+                      className="textButton"
+                      onClick={() =>
+                        void store.change(
+                          (s) => ({
+                            ...s,
+                            blocked: s.blocked.filter((id) => id !== recipe.id),
+                          }),
+                          { kind: 'unblock', recipeId: recipe.id },
+                        )
+                      }
+                    >
+                      Recommend again
+                    </Button>
+                  )}
+                  <LovedButton
+                    loved={state.loved.includes(recipe.id)}
+                    onToggle={() => {
+                      const { event } = toggleLoved(state, recipe.id)
+                      return store.change(
+                        (s) => toggleLoved(s, recipe.id).state,
+                        event,
                       )
-                    }
-                  >
-                    Recommend again
-                  </Button>
-                )}
-                <LovedButton
-                  loved={state.loved.includes(recipe.id)}
-                  onToggle={() => {
-                    const { event } = toggleLoved(state, recipe.id)
-                    return store.change(
-                      (s) => toggleLoved(s, recipe.id).state,
-                      event,
-                    )
-                  }}
-                />
-              </div>
-            </article>
-          ))}
+                    }}
+                  />
+                </div>
+              </article>
+            ))}
           <CatalogSection
             state={state}
             catalog={catalog}
             onReview={(recipe) => {
               setFromBookmark(undefined)
-              setBaseline(null)
+              // A saved import is edited in place; a catalog one is added.
+              setBaseline(state.recipes.find((r) => r.id === recipe.id) ?? null)
               setEditing(recipe)
             }}
           />
