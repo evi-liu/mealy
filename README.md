@@ -62,7 +62,7 @@ The state document keeps the recipe library, bookmarks, settings, shared queue, 
 
 ## Recipe catalog and recipe sources
 
-Each household follows a list of **recipe sources** (Profile → Recipe sources), starting with Tiffy Cooks and The Woks of Life; any recipe site with a sitemap and structured recipe data can be added by its address. The `catalog-import` Edge Function reads each followed site's sitemap (preferring post or recipe sitemaps), preloads the 100 newest recipes per site in batches of 15, then checks at most weekly for posts newer than the last check. It fetches politely (1.5 s apart, identifying user agent, host allowlist with redirect checks, size and time limits) and stores each recipe's title, yield, time, ingredient lines, **directions** and categories (household decision, 2026-10-30), never photographs. Recipes imported before directions were kept are backfilled 10 per site per run. The catalog is one shared, de-duplicated table in Supabase (`catalog_recipes`), never in this public repository; row-level security shows each household only recipes from the sites it follows.
+Each household follows a list of **recipe sources** (Profile → Recipe sources), starting with Tiffy Cooks and The Woks of Life; any recipe site with a sitemap and structured recipe data can be added by its address. The `catalog-import` Edge Function reads each followed site's sitemap (preferring post or recipe sitemaps), preloads the 100 newest recipes per site in batches of 15, then checks weekly (Saturdays) for posts newer than the last check. It fetches politely (1.5 s apart, identifying user agent, host allowlist with redirect checks, size and time limits) and stores each recipe's title, yield, time, ingredient lines, **directions** and categories (household decision, 2026-10-30), never photographs. Recipes imported before directions were kept are backfilled 10 per site per run. The catalog is one shared, de-duplicated table in Supabase (`catalog_recipes`), never in this public repository; row-level security shows each household only recipes from the sites it follows.
 
 The app parses catalog rows with the same ingredient parser as the Tiffy facts. Recipes whose every line parses (ignoring "to taste", "optional", "garnish", "pinch" lines) and that have a yield and time join the stack as **ready**: leftover-friendly with a maximum batch of twice the published yield, labelled and adjustable. Anything with ranges, missing amounts or unknown units waits under **Recipes → Recipe catalog** for a quick review; nothing is guessed. Desserts, drinks and sauces stay out of the dinner stack. Queued catalog recipes are copied into the household for the week; unedited copies return to the catalog at a fresh week unless loved or cooked.
 
@@ -70,10 +70,9 @@ Set up once, after applying the catalog migrations (`202610300003` to `202610300
 
 ```sh
 supabase functions deploy catalog-import
-# Set CATALOG_CRON_SECRET (a long random string) as an Edge Function secret in the dashboard.
 ```
 
-Then run `supabase/setup-catalog-cron.sql` in the SQL editor with your project ref and the same secret filled in (do not commit the edited file). It enables `pg_cron`/`pg_net`, stores both values in Vault and schedules an hourly tick; the function itself limits site visits to the preload batches and one weekly check. `select cron.unschedule('catalog-import');` stops it.
+Then run `supabase/setup-catalog-cron.sql` once in the SQL editor with your project ref filled in. It enables `pg_cron`/`pg_net`, generates a random shared secret in Vault (no Edge Function secret to manage), and schedules the importer for **Saturdays only**, every 10 minutes from 09:00 to 10:50 UTC. The first Saturday finishes the preload in batches; afterwards the first Saturday run checks for new recipes and the rest return without visiting any site. `select cron.unschedule('catalog-import');` stops it.
 
 ## Optional AI ranking and recipe drafting
 

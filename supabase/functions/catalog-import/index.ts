@@ -9,7 +9,8 @@ type Source = string
 const PRELOAD = 100
 const BACKFILL = 10
 const BATCH = 15
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+// Just under a week, so each Saturday's first run counts as due.
+const WEEK_MS = 6 * 24 * 60 * 60 * 1000
 const DELAY_MS = 1500
 const USER_AGENT =
   'MealyHouseholdPlanner/1.0 (private two-person meal planner; +https://evi-liu.github.io/mealy/)'
@@ -225,14 +226,19 @@ Deno.serve(async (req: Request) => {
       status,
       headers: { 'Content-Type': 'application/json' },
     })
-  const secret = Deno.env.get('CATALOG_CRON_SECRET')
-  if (!secret || !sameSecret(req.headers.get('x-catalog-secret') ?? '', secret))
-    return respond(401, { error: 'Not authorized.' })
   const admin = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     { auth: { persistSession: false } },
   )
+  // The cron sends the secret that setup-catalog-cron.sql generated in Vault.
+  const { data: secret } = await admin.rpc('catalog_cron_secret')
+  if (
+    typeof secret !== 'string' ||
+    !secret ||
+    !sameSecret(req.headers.get('x-catalog-secret') ?? '', secret)
+  )
+    return respond(401, { error: 'Not authorized.' })
   const summary: Record<string, unknown> = {}
   const { data: followed, error: sourcesError } = await admin
     .from('household_sources')
