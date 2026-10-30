@@ -17,7 +17,7 @@ export type StepChange = {
   note?: string
 }
 export type FieldChange = {
-  field: keyof Omit<RecipeDraft, 'ingredients' | 'instructions'>
+  field: keyof Omit<RecipeDraft, 'ingredients' | 'instructions' | 'maxServings'>
   before: string | number | boolean
   after: string | number | boolean
   note?: string
@@ -35,7 +35,6 @@ const fields = [
   'title',
   'description',
   'servings',
-  'maxServings',
   'minutes',
   'protein',
   'leftovers',

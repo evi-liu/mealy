@@ -6,7 +6,7 @@ The first version starts with household go-tos and trusted-source **bookmarks**,
 
 The Recipes tab links to both sites and accepts a pasted HTTPS recipe URL plus a label written by the user. Pasting a link saves only that bookmark in the private household document; it does not fetch arbitrary URLs or claim a successful import.
 
-A bookmark clearly says that yields/ingredients have not been entered and cannot enter the swipe queue, plan or grocery calculations. **Enter my own recipe details** opens a manual form with source attribution preserved. Serving yield, batch capacity, time and ingredient amounts start blank; the user must review/enter them, provide their own method or content they have permission to save, and acknowledge those rights before saving a complete household recipe. This is not permission to paste a publisher's copyrighted instructions or photos.
+A bookmark clearly says that yields/ingredients have not been entered and cannot enter the swipe queue, plan or grocery calculations. **Enter my own recipe details** opens a manual form with source attribution preserved. Serving yield, time and ingredient amounts start blank; the user must review/enter them, provide their own method or content they have permission to save, and acknowledge those rights before saving a complete household recipe. This is not permission to paste a publisher's copyrighted instructions or photos.
 
 ## Selected Tiffy Cooks facts
 
@@ -14,7 +14,7 @@ A bookmark clearly says that yields/ingredients have not been entered and cannot
 
 All imports start **Review before planning**. Explicit quantities and supported units are prefilled. Missing amounts, ranges, unknown units and compound stock/water entries stay unresolved. The review form leaves those amounts blank; the household must choose quantities, split compound entries or explicitly remove ingredients it will not use. Packages, blocks and cloves remain counts, not invented weights. Duplicate source lines are retained. Ingredients omitted by the source (such as rice alongside braised pork) are not invented; add any desired sides during review.
 
-The published yield is initially also the maximum batch size. Review practical equipment capacity, main protein/variety and leftover/potluck suitability before saving. Acknowledgement and valid quantities are required to mark the recipe reviewed. Original source lines stay available for comparison after edits. Cooking directions open on Tiffy Cooks, not in a copied Method section. Any uploaded photo must be the household's own or permitted.
+The published yield is the basis for ingredient scaling, not a batch-size limit. Legacy snapshots still carry `maxServings` for compatibility, but it does not limit plans, swaps or remixes. Review main protein/variety and leftover/potluck suitability before saving. Acknowledgement and valid quantities are required to mark the recipe reviewed. Original source lines stay available for comparison after edits. Cooking directions open on Tiffy Cooks, not in a copied Method section. Any uploaded photo must be the household's own or permitted.
 
 Unreviewed imports are excluded from shortlists, votes, plans, swaps and grocery arithmetic. Reviewed recipes use the same deterministic scaling as household recipes. Update older app clients before adding reference recipes; older clients intentionally reject the unfamiliar source type rather than stripping it during a save.
 

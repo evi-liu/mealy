@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from 'react'
 import { Button } from '@base-ui/react/button'
-import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 import type { Recipe } from './domain'
 import { RecipeArt } from './RecipeArt'
 
@@ -24,7 +24,7 @@ export function RecipeLibraryRow({
 }: {
   recipe: Recipe
   household?: string | null
-  subtitle: string
+  subtitle: ReactNode
   actions?: ReactNode
   revealed: boolean
   onReveal: (open: boolean) => void
@@ -35,7 +35,8 @@ export function RecipeLibraryRow({
 }) {
   const actionWidth = onDelete ? 152 : 76
   const id = useId()
-  const toggle = useRef<HTMLButtonElement>(null)
+  const titleButton = useRef<HTMLButtonElement>(null)
+  const editButton = useRef<HTMLButtonElement>(null)
   const [offset, setOffset] = useState<number | null>(null)
   const gesture = useRef<{
     id: number
@@ -46,6 +47,11 @@ export function RecipeLibraryRow({
     dragging: boolean
   } | null>(null)
   const suppressClick = useRef(false)
+  function showActions() {
+    if (disabled) return
+    onReveal(true)
+    requestAnimationFrame(() => editButton.current?.focus())
+  }
   function down(event: PointerEvent<HTMLDivElement>) {
     if (disabled || !event.isPrimary || event.button !== 0 || gesture.current)
       return
@@ -99,13 +105,35 @@ export function RecipeLibraryRow({
         if (!event.currentTarget.contains(event.relatedTarget)) onReveal(false)
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && revealed) {
+        if (
+          event.target === titleButton.current &&
+          (event.key === 'ArrowLeft' || (event.shiftKey && event.key === 'F10'))
+        ) {
+          event.preventDefault()
+          showActions()
+        } else if (
+          (event.key === 'Escape' || event.key === 'ArrowRight') &&
+          revealed
+        ) {
           event.preventDefault()
           onReveal(false)
-          toggle.current?.focus()
+          titleButton.current?.focus()
+        }
+      }}
+      onContextMenu={(event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest('.recipeRowOpen')
+        ) {
+          event.preventDefault()
+          showActions()
         }
       }}
     >
+      <span className="visuallyHidden" id={`${id}-help`}>
+        Swipe left or press Left Arrow for{' '}
+        {onDelete ? 'Edit and Delete' : 'Edit'}.
+      </span>
       <div
         className="recipeRowFront"
         data-dragging={offset !== null}
@@ -130,9 +158,11 @@ export function RecipeLibraryRow({
       >
         <div className="recipeRowContent">
           <Button
+            ref={titleButton}
             className="recipeRowOpen"
             aria-label={recipe.title}
-            aria-describedby={`${id}-metadata`}
+            aria-describedby={`${id}-metadata ${id}-help`}
+            aria-keyshortcuts="ArrowLeft Shift+F10"
             disabled={disabled}
             onClick={() => (revealed ? onReveal(false) : onOpen())}
           >
@@ -144,17 +174,6 @@ export function RecipeLibraryRow({
           </small>
         </div>
         {actions}
-        <Button
-          ref={toggle}
-          className="iconButton recipeRowMore"
-          aria-label={`Recipe actions for ${recipe.title}`}
-          aria-expanded={revealed}
-          aria-controls={id}
-          disabled={disabled}
-          onClick={() => onReveal(!revealed)}
-        >
-          <MoreHorizontal size={20} aria-hidden="true" />
-        </Button>
       </div>
       <div
         className="recipeRowActions"
@@ -163,6 +182,7 @@ export function RecipeLibraryRow({
         style={{ width: actionWidth }}
       >
         <Button
+          ref={editButton}
           className="recipeRowEdit"
           tabIndex={revealed ? 0 : -1}
           disabled={disabled}

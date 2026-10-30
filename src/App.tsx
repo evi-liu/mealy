@@ -16,6 +16,7 @@ import {
   Pin,
   Plus,
   RotateCcw,
+  Search,
   ShoppingBasket,
   Sparkles,
   UserRound,
@@ -52,13 +53,14 @@ import {
   sourceName,
 } from './domain'
 import { supabase, useHousehold, type HouseholdStore } from './store'
-import { RecipeForm } from './RecipeForm'
+import { RecipeForm, type InitialRecipeDraft } from './RecipeForm'
+import { AiBadge } from './AiBadge'
 import { AddRecipeSheet } from './AddRecipeSheet'
 import { RecipeLibraryRow } from './RecipeLibraryRow'
 import { useGroceryUnits } from './useGroceryUnits'
 import { useFlingCard } from './motion/useFlingCard'
 import { flyToDeck } from './motion/flyToDeck'
-import { liveRecipeAi, type RecipeAi, type RecipeDraft } from './ai/recipeAi'
+import { liveRecipeAi, type RecipeAi } from './ai/recipeAi'
 import { RecipeArt } from './RecipeArt'
 import { unsaved, useCatalog, type Catalog } from './catalog'
 import { Onboarding, ProfileScreen } from './Profile'
@@ -332,10 +334,12 @@ function Swipe({
     (value) => value === 'like',
   ).length
   let canBuild = true
+  let buildReason = ''
   try {
     buildPlan(state)
-  } catch {
+  } catch (error) {
     canBuild = false
+    buildReason = message(error)
   }
   const recipeId = recipe?.id
   const card = useFlingCard(async (choice) =>
@@ -522,7 +526,7 @@ function Swipe({
           <p>
             {canBuild
               ? 'Your shortlist is ready to turn into a week.'
-              : 'Like more recipes or add recipes that can cover your servings. Skipped recipes are never silently added.'}
+              : 'Review your liked options or adjust setup. Skipped recipes are never silently added.'}
           </p>
           <Button
             className="secondaryButton"
@@ -565,12 +569,7 @@ function Swipe({
         >
           Build my week <Sparkles size={18} />
         </Button>
-        {!canBuild && (
-          <p className="helper">
-            A plan unlocks when your likes can cover all dinners, lunches and
-            any Kairos dish.
-          </p>
-        )}
+        {!canBuild && <p className="helper">{buildReason}</p>}
       </div>
     </main>
   )
@@ -1165,20 +1164,55 @@ function Recipes({
   const [deleting, setDeleting] = useState<string | null>(null)
   const deleteLock = useRef(false)
   const [editing, setEditing] = useState<Recipe | 'new' | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [query, setQuery] = useState('')
+  const searchInput = useRef<HTMLInputElement>(null)
+  const searchButton = useRef<HTMLButtonElement>(null)
+  const libraryScroll = useRef(0)
+  useEffect(() => {
+    if (searching && !editing) searchInput.current?.focus()
+  }, [searching, editing])
+  function closeSearch() {
+    setSearching(false)
+    setQuery('')
+    setRevealedRow(null)
+    requestAnimationFrame(() => {
+      searchButton.current?.focus({ preventScroll: true })
+      window.scrollTo({ top: libraryScroll.current, behavior: 'instant' })
+    })
+  }
   const [revealedRow, setRevealedRow] = useState<string | null>(null)
   function revealRow(id: string, open: boolean) {
     setRevealedRow((current) => (open ? id : current === id ? null : current))
   }
   const favorites = state.recipes.filter((recipe) => isFavorite(recipe, state))
+  const terms = normalize(query).split(/\s+/).filter(Boolean)
+  const visibleRecipes = searching
+    ? state.recipes.filter((recipe) => {
+        const searchable = normalize(
+          [
+            recipe.title,
+            recipe.sourceUrl ? sourceName(recipe.sourceUrl) : '',
+            ...recipe.ingredients.map((ingredient) => ingredient.name),
+            ...(recipe.facts?.pendingIngredients.map(
+              (ingredient) => ingredient.name,
+            ) ?? []),
+          ].join(' '),
+        )
+        return terms.every((term) => searchable.includes(term))
+      })
+    : favorites
   // The saved version this edit replaces; a changed baseline means another
   // phone edited it meanwhile.
   const [baseline, setBaseline] = useState<Recipe | null>(null)
   const [reviewingRemix, setReviewingRemix] = useState(false)
-  const [imported, setImported] = useState<{
-    recipe: RecipeDraft
-    notes: string[]
-    sourceUrl: string
-  }>()
+  const [initialDraft, setInitialDraft] = useState<InitialRecipeDraft>()
+  function focusLibrary() {
+    ;(
+      searchInput.current ??
+      library.current?.querySelector<HTMLButtonElement>('.addRecipeButton')
+    )?.focus()
+  }
   async function deleteSavedRecipe(recipe: Recipe) {
     if (deleteLock.current) return
     deleteLock.current = true
@@ -1215,11 +1249,9 @@ function Recipes({
       )
       if (!saved) return
       setRevealedRow(null)
-      requestAnimationFrame(() =>
-        library.current
-          ?.querySelector<HTMLButtonElement>('.addRecipeButton')
-          ?.focus(),
-      )
+      requestAnimationFrame(() => {
+        if (document.activeElement === document.body) focusLibrary()
+      })
       if (unusedImage && supabase) {
         try {
           const result = await supabase.storage
@@ -1236,30 +1268,36 @@ function Recipes({
       deleteLock.current = false
       setDeleting(null)
       requestAnimationFrame(() => {
-        if (document.activeElement === document.body)
-          library.current
-            ?.querySelector<HTMLButtonElement>('.addRecipeButton')
-            ?.focus()
+        if (document.activeElement === document.body) focusLibrary()
       })
     }
   }
   async function importLink(url: string): Promise<string | void> {
     const link = sourceUrlSchema.safeParse(url)
     if (!link.success) return 'Paste a full https:// link to a recipe page.'
+    return createDraft('Import the recipe from this page.', link.data)
+  }
+  async function createDraft(
+    instruction: string,
+    url?: string,
+  ): Promise<string | void> {
     try {
       const result = await ai.draft({
-        instruction: 'Import the recipe from this page.',
-        url: link.data,
+        instruction,
+        url,
         history: [],
       })
       if ('declined' in result) return result.declined
       setBaseline(null)
-      setImported({
+      setInitialDraft({
         recipe: result.recipe,
         notes: result.notes.map((note) => note.text),
-        sourceUrl: link.data,
+        prompts: [url ? `Imported from ${url}` : instruction],
+        sourceUrl: url,
       })
+      setRevealedRow(null)
       setEditing('new')
+      window.scrollTo({ top: 0, behavior: 'instant' })
     } catch (error) {
       return message(error)
     }
@@ -1348,34 +1386,94 @@ function Recipes({
       ref={library}
       className={`screen recipeLibrary${editing ? '' : ' browsing'}`}
     >
-      <Header
-        eyebrow="YOUR RECIPE BOX"
-        title="Kitchen favorites"
-        action={
-          !editing && (
-            <AddRecipeSheet
-              onAi={() => {
-                setBaseline(null)
-                setImported(undefined)
+      {searching && !editing ? (
+        <form
+          role="search"
+          className="recipeSearchBar"
+          onSubmit={(event) => {
+            event.preventDefault()
+            searchInput.current?.blur()
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              closeSearch()
+            }
+          }}
+        >
+          <h1 className="visuallyHidden">Search recipes</h1>
+          <div className="recipeSearchField">
+            <Search size={20} aria-hidden="true" />
+            <input
+              ref={searchInput}
+              type="search"
+              aria-label="Search recipes"
+              placeholder="Search your recipes"
+              value={query}
+              maxLength={200}
+              autoComplete="off"
+              enterKeyHint="search"
+              onChange={(event) => {
+                setQuery(event.target.value)
                 setRevealedRow(null)
-                setEditing('new')
-                window.scrollTo({ top: 0, behavior: 'instant' })
               }}
-              onImport={importLink}
             />
-          )
-        }
-      />
+            {query && (
+              <Button
+                className="iconButton"
+                aria-label="Clear search"
+                onClick={() => {
+                  setQuery('')
+                  searchInput.current?.focus()
+                }}
+              >
+                <X size={18} aria-hidden="true" />
+              </Button>
+            )}
+          </div>
+          <Button className="searchCancel" onClick={closeSearch}>
+            Cancel
+          </Button>
+        </form>
+      ) : (
+        <Header
+          eyebrow="YOUR RECIPE BOX"
+          title="Kitchen favorites"
+          action={
+            !editing && (
+              <div className="libraryHeaderActions">
+                <Button
+                  ref={searchButton}
+                  className="iconButton searchRecipeButton"
+                  aria-label="Search recipes"
+                  onClick={() => {
+                    libraryScroll.current = window.scrollY
+                    setSearching(true)
+                    setRevealedRow(null)
+                    window.scrollTo({ top: 0, behavior: 'instant' })
+                  }}
+                >
+                  <Search size={24} aria-hidden="true" />
+                </Button>
+                <AddRecipeSheet
+                  onAi={(instruction) => createDraft(instruction)}
+                  onImport={importLink}
+                />
+              </div>
+            )
+          }
+        />
+      )}
       {editing ? (
         <RecipeForm
           key={
             typeof editing === 'string'
-              ? `${editing}-${imported?.sourceUrl ?? ''}`
+              ? `${editing}-${initialDraft?.sourceUrl ?? ''}`
               : editing.id
           }
           recipe={editing === 'new' ? undefined : editing}
           ai={ai}
-          imported={editing === 'new' ? imported : undefined}
+          initialDraft={editing === 'new' ? initialDraft : undefined}
           heading={reviewingRemix ? 'Review your remix' : undefined}
           celebrate={
             editing === 'new' ||
@@ -1390,7 +1488,7 @@ function Recipes({
           }
           onCancel={() => {
             setRemixSlot(undefined)
-            setImported(undefined)
+            setInitialDraft(undefined)
             setEditing(null)
             setRevealedRow(null)
             setBaseline(null)
@@ -1401,36 +1499,52 @@ function Recipes({
       ) : (
         <>
           <div className="libraryCaption">
-            <span>
-              {favorites.length} {favorites.length === 1 ? 'recipe' : 'recipes'}
+            <span role={searching ? 'status' : undefined}>
+              {visibleRecipes.length}{' '}
+              {visibleRecipes.length === 1 ? 'recipe' : 'recipes'}
             </span>
-            <span>Swipe left to edit or delete</span>
+            {!searching && <span>Swipe left to edit or delete</span>}
           </div>
-          {!favorites.length && (
+          {!visibleRecipes.length && (
             <p className="libraryEmpty helper">
-              A little inspiration goes a long way. Use the plus button to
-              describe a dish or bring in a recipe from the web.
+              {searching
+                ? query.trim()
+                  ? `No recipes found for “${query.trim()}”. Try a name, ingredient or source.`
+                  : 'No saved recipes yet. Cancel to add your first one.'
+                : 'A little inspiration goes a long way. Use the plus button to describe a dish or bring in a recipe from the web.'}
             </p>
           )}
-          {favorites.map((recipe) => (
+          {visibleRecipes.map((recipe) => (
             <RecipeLibraryRow
               key={recipe.id}
               recipe={recipe}
               household={store.household}
-              subtitle={`${
-                recipe.aiDraft
-                  ? 'AI-DRAFTED'
-                  : recipe.sourceUrl
-                    ? sourceName(recipe.sourceUrl)
-                    : 'Your recipe'
-              } · ${recipe.minutes} min · ${
-                recipe.facts?.needsReview
-                  ? 'Needs review'
-                  : `${recipe.servings} servings`
-              }`}
+              subtitle={
+                <>
+                  {recipe.aiDraft && (
+                    <>
+                      <AiBadge />{' '}
+                    </>
+                  )}
+                  {recipe.sourceUrl
+                    ? `${sourceName(recipe.sourceUrl)} · `
+                    : recipe.aiDraft
+                      ? ''
+                      : 'Your recipe · '}
+                  {recipe.minutes} min ·{' '}
+                  {recipe.facts?.needsReview
+                    ? 'Needs review'
+                    : `${recipe.servings} servings`}
+                </>
+              }
               revealed={revealedRow === recipe.id}
               onReveal={(open) => revealRow(recipe.id, open)}
-              onOpen={() => details(recipe)}
+              onOpen={() => {
+                if (recipe.facts?.needsReview) {
+                  setBaseline(recipe)
+                  setEditing(recipe)
+                } else details(recipe)
+              }}
               onEdit={() => {
                 setBaseline(recipe)
                 setEditing(recipe)
@@ -1471,20 +1585,24 @@ function Recipes({
               }
             />
           ))}
-          <CatalogSection
-            state={state}
-            catalog={catalog}
-            household={store.household}
-            revealedRow={revealedRow}
-            revealRow={revealRow}
-            onDelete={(recipe) => void deleteSavedRecipe(recipe)}
-            deleting={deleting}
-            onReview={(recipe) => {
-              // A saved import is edited in place; a catalog one is added.
-              setBaseline(state.recipes.find((r) => r.id === recipe.id) ?? null)
-              setEditing(recipe)
-            }}
-          />
+          {!searching && (
+            <CatalogSection
+              state={state}
+              catalog={catalog}
+              household={store.household}
+              revealedRow={revealedRow}
+              revealRow={revealRow}
+              onDelete={(recipe) => void deleteSavedRecipe(recipe)}
+              deleting={deleting}
+              onReview={(recipe) => {
+                // A saved import is edited in place; a catalog one is added.
+                setBaseline(
+                  state.recipes.find((r) => r.id === recipe.id) ?? null,
+                )
+                setEditing(recipe)
+              }}
+            />
+          )}
         </>
       )}
     </main>
@@ -1514,6 +1632,8 @@ function Kitchen({ exit }: { exit: () => void }) {
       )
   }, [store.reportError])
   const headingRef = useRef<HTMLDivElement>(null)
+  const screenPhase = tab === 'plan' ? state?.phase : undefined
+  const loaded = Boolean(state)
   function navigate(tab: Tab) {
     window.location.hash = tab
     setTab(tab)
@@ -1530,7 +1650,7 @@ function Kitchen({ exit }: { exit: () => void }) {
       heading.tabIndex = -1
       heading.focus({ preventScroll: true })
     }
-  }, [tab, state?.phase])
+  }, [tab, screenPhase, loaded])
   const details = (recipe: Recipe, servings?: number, slot?: number) =>
     setDetail({ recipe, servings, slot })
   return (

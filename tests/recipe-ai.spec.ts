@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/kitchen'
+import { test, expect, corsHeaders } from './fixtures/kitchen'
 import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 
@@ -20,7 +20,12 @@ test('AI drafts a new recipe into the form, refines it, and saves only after rev
   await expect(page.getByLabel('Recipe name', { exact: true })).toHaveValue(
     'Garlicky white bean & greens soup',
   )
-  await expect(page.getByText('AI-drafted · not kitchen-tested')).toBeVisible()
+  await expect(
+    page.getByText('Not kitchen-tested', { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('img', { name: 'AI-assisted recipe' }),
+  ).toBeVisible()
   await expect(
     page.getByText('Review the quantities before cooking.'),
   ).toBeVisible()
@@ -88,7 +93,10 @@ test('AI drafts a new recipe into the form, refines it, and saves only after rev
   const saved = page.getByRole('article').filter({
     hasText: 'Garlicky white bean & greens soup',
   })
-  await expect(saved).toContainText('AI-DRAFTED')
+  await expect(
+    saved.getByRole('img', { name: 'AI-assisted recipe' }),
+  ).toBeVisible()
+  await expect(saved).not.toContainText('AI-DRAFTED')
   await saved
     .getByRole('button', {
       name: 'Garlicky white bean & greens soup',
@@ -112,6 +120,54 @@ async function openRecipes(page: Page) {
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
 }
 
+test('a remix does not inherit the original recipe photo', async ({
+  page,
+  kitchen,
+}) => {
+  const original = kitchen.state.recipes[0]
+  original.imagePath = '10000000-0000-0000-0000-000000000001/original.png'
+  await page.route('**/storage/v1/**', (route) =>
+    route.fulfill({
+      status: route.request().method() === 'POST' ? 403 : 200,
+      headers: {
+        ...corsHeaders,
+        'access-control-allow-methods': 'POST,DELETE,OPTIONS',
+      },
+      contentType: 'application/json',
+      body:
+        route.request().method() === 'POST'
+          ? JSON.stringify({ message: 'Test photo unavailable' })
+          : '[]',
+    }),
+  )
+  await openRecipes(page)
+  await page.getByRole('button', { name: original.title, exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('.recipeArt')).toContainText('Photo unavailable')
+  await dialog.getByLabel('Remix this recipe').fill('Different vegetables')
+  await dialog.getByRole('button', { name: 'Remix recipe' }).click()
+  await expect(dialog.getByText('Unsaved remix', { exact: true })).toBeVisible()
+  await expect(dialog.locator('.recipeArt')).toContainText(
+    'A little kitchen illustration',
+  )
+  await dialog.getByRole('button', { name: 'Replace original' }).click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Replace original' })
+    .click()
+  await page
+    .getByRole('checkbox', { name: /I reviewed this AI-drafted recipe/ })
+    .check()
+  await page.getByRole('button', { name: 'Save recipe', exact: true }).click()
+  await expect
+    .poll(
+      () =>
+        kitchen.state.recipes.find((recipe) => recipe.id === original.id)
+          ?.imagePath,
+    )
+    .toBeUndefined()
+})
+
 test('remixing highlights changes, can be undone, and saves as a reviewed new recipe', async ({
   page,
 }) => {
@@ -128,7 +184,7 @@ test('remixing highlights changes, can be undone, and saves as a reviewed new re
   await remix.fill('Make it spicier')
   await remix.press('Enter')
 
-  await expect(dialog.getByText('Unsaved remix · AI-drafted')).toBeVisible()
+  await expect(dialog.getByText('Unsaved remix', { exact: true })).toBeVisible()
   await expect(
     dialog.getByText('2 added · 1 removed · 1 changed'),
   ).toBeVisible()
@@ -154,7 +210,9 @@ test('remixing highlights changes, can be undone, and saves as a reviewed new re
   ).toEqual([])
 
   await dialog.getByRole('button', { name: 'Undo last change' }).click()
-  await expect(dialog.getByText('Unsaved remix · AI-drafted')).toHaveCount(0)
+  await expect(dialog.getByText('Unsaved remix', { exact: true })).toHaveCount(
+    0,
+  )
   await expect(dialog).toContainText('500 g chickpeas')
 
   await remix.fill('Make it spicier')
@@ -187,16 +245,16 @@ test('closing an unsaved remix asks first', async ({ page }) => {
     .getByRole('textbox', { name: 'Remix this recipe' })
     .fill('Swap the rice')
   await dialog.getByRole('button', { name: 'Remix recipe' }).click()
-  await expect(dialog.getByText('Unsaved remix · AI-drafted')).toBeVisible()
+  await expect(dialog.getByText('Unsaved remix', { exact: true })).toBeVisible()
 
-  await dialog.getByRole('button', { name: 'Close recipe' }).click()
+  await dialog.getByRole('button', { name: 'Back to previous screen' }).click()
   await page
     .getByRole('alertdialog')
     .getByRole('button', { name: 'Keep editing' })
     .click()
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByText('Unsaved remix · AI-drafted')).toBeVisible()
-  await dialog.getByRole('button', { name: 'Close recipe' }).click()
+  await expect(dialog.getByText('Unsaved remix', { exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Back to previous screen' }).click()
   await page
     .getByRole('alertdialog')
     .getByRole('button', { name: 'Discard' })
@@ -276,7 +334,7 @@ test('the full recipe card can pin a planned recipe and mark it loved', async ({
     'aria-pressed',
     'true',
   )
-  await dialog.getByRole('button', { name: 'Close recipe' }).click()
+  await dialog.getByRole('button', { name: 'Back to previous screen' }).click()
 
   await expect(
     first.getByRole('button', { name: `Unpin ${title}` }),
@@ -330,7 +388,7 @@ test('a remix saved from the plan takes its slot pinned, and cannot be pinned or
     .getByRole('textbox', { name: 'Remix this recipe' })
     .fill('More vegetables')
   await dialog.getByRole('button', { name: 'Remix recipe' }).click()
-  await expect(dialog.getByText('Unsaved remix · AI-drafted')).toBeVisible()
+  await expect(dialog.getByText('Unsaved remix', { exact: true })).toBeVisible()
   await expect(dialog.getByRole('button', { name: /Pin / })).toHaveCount(0)
   await expect(
     dialog.getByRole('button', { name: 'We loved this' }),

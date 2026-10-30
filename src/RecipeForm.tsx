@@ -13,6 +13,14 @@ import { PromptBar } from './ai/PromptBar'
 import { useConfirm } from './confirm'
 import { flyToDeck } from './motion/flyToDeck'
 import type { DraftBase, RecipeAi, RecipeDraft } from './ai/recipeAi'
+import { AiBadge } from './AiBadge'
+
+export type InitialRecipeDraft = {
+  recipe: RecipeDraft
+  notes: string[]
+  prompts: string[]
+  sourceUrl?: string
+}
 
 type EditableIngredient = Omit<Ingredient, 'unit' | 'category'> & {
   unit: Ingredient['unit'] | ''
@@ -28,7 +36,7 @@ export function RecipeForm({
   heading,
   notice,
   celebrate = false,
-  imported,
+  initialDraft,
 }: {
   recipe?: Recipe
   onSave: (recipe: Recipe, image?: File) => Promise<boolean>
@@ -39,8 +47,8 @@ export function RecipeForm({
   notice?: string
   /** Throw a card into the Recipes tab once a new recipe is saved. */
   celebrate?: boolean
-  /** A recipe AI read from a web page, to check before saving. */
-  imported?: { recipe: RecipeDraft; notes: string[]; sourceUrl: string }
+  /** A generated or imported recipe, to check before saving. */
+  initialDraft?: InitialRecipeDraft
 }) {
   const reference = recipe?.source === 'reference'
   const [ingredients, setIngredients] = useState<EditableIngredient[]>(
@@ -57,15 +65,17 @@ export function RecipeForm({
             }),
           ),
         ]
-      : imported
-        ? imported.recipe.ingredients
+      : initialDraft
+        ? initialDraft.recipe.ingredients
         : [{ name: '', amount: NaN, unit: '', category: '' }],
   )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
-  const [draft, setDraft] = useState<RecipeDraft | undefined>(imported?.recipe)
-  const [draftCount, setDraftCount] = useState(imported ? 1 : 0)
+  const [draft, setDraft] = useState<RecipeDraft | undefined>(
+    initialDraft?.recipe,
+  )
+  const [draftCount, setDraftCount] = useState(initialDraft ? 1 : 0)
   const showFields = Boolean(recipe || draft)
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -79,12 +89,12 @@ export function RecipeForm({
   }, [showFields, draftCount])
   const [aiDraft, setAiDraft] = useState(
     recipe?.aiDraft ??
-      (imported && {
+      (initialDraft && {
         createdAt: new Date().toISOString(),
-        prompts: [`Imported from ${imported.sourceUrl}`],
+        prompts: initialDraft.prompts,
       }),
   )
-  const [notes, setNotes] = useState<string[]>(imported?.notes ?? [])
+  const [notes, setNotes] = useState<string[]>(initialDraft?.notes ?? [])
   const [aiError, setAiError] = useState('')
   const [drafting, setDrafting] = useState(false)
   const [touched, setTouched] = useState(false)
@@ -115,7 +125,7 @@ export function RecipeForm({
       title: field('title'),
       description: field('description'),
       servings: number('servings'),
-      maxServings: number('maxServings'),
+      maxServings: values?.maxServings ?? null,
       minutes: number('minutes'),
       protein: field('protein'),
       leftovers: form.has('leftovers'),
@@ -179,7 +189,8 @@ export function RecipeForm({
       title: form.get('title'),
       description: form.get('description'),
       servings: Number(form.get('servings')),
-      maxServings: Number(form.get('maxServings')),
+      maxServings:
+        values?.maxServings ?? Math.max(2, Number(form.get('servings'))),
       minutes: Number(form.get('minutes')),
       protein: form.get('protein'),
       leftovers: form.has('leftovers'),
@@ -206,12 +217,6 @@ export function RecipeForm({
         parsed.error.issues
           .map((i) => `${i.path.join('.')}: ${i.message}`)
           .join('; '),
-      )
-      return
-    }
-    if (parsed.data.maxServings < parsed.data.servings) {
-      setError(
-        'Maximum batch size must be at least the original recipe servings.',
       )
       return
     }
@@ -271,7 +276,7 @@ export function RecipeForm({
       </h2>
       <p className="helper">
         {reference
-          ? 'Review the imported quantities, directions and your batch capacity before planning.'
+          ? 'Review the imported quantities and directions before planning.'
           : showFields
             ? 'Review the quantities and steps before saving. All quantities describe the original batch.'
             : 'Start with a craving, an ingredient or an idea. AI will draft a recipe for you to review.'}
@@ -323,7 +328,7 @@ export function RecipeForm({
       {aiDraft && (
         <section className="notice aiNotice" aria-live="polite">
           <strong>
-            <Sparkles size={15} /> AI-drafted · not kitchen-tested
+            <AiBadge /> Not kitchen-tested
           </strong>
           {notes.length > 0 && (
             <ul>
@@ -332,7 +337,7 @@ export function RecipeForm({
               ))}
             </ul>
           )}
-          <p>Check amounts, servings, batch size and steps before saving.</p>
+          <p>Check amounts, servings and steps before saving.</p>
         </section>
       )}
       {drafting && (
@@ -375,7 +380,7 @@ export function RecipeForm({
               maxLength={2048}
               required={reference}
               readOnly={reference}
-              defaultValue={recipe?.sourceUrl ?? imported?.sourceUrl}
+              defaultValue={recipe?.sourceUrl ?? initialDraft?.sourceUrl}
             />
           </label>
           <label>
@@ -396,17 +401,6 @@ export function RecipeForm({
                 max={30}
                 required
                 defaultValue={values?.servings}
-              />
-            </label>
-            <label>
-              Max batch servings
-              <input
-                name="maxServings"
-                type="number"
-                min={2}
-                max={60}
-                required
-                defaultValue={values?.maxServings}
               />
             </label>
             <label>
@@ -438,10 +432,9 @@ export function RecipeForm({
             </label>
           </div>
           <p className="helper">
-            Maximum batch size is what you can realistically cook with your
-            equipment. Scaling changes quantities, not cooking time.
-            {reference &&
-              ' Imported recipes start conservatively at the original yield. Review leftover and potluck suitability yourself.'}
+            Quantities scale automatically to your weekly servings, without a
+            batch-size limit. Cooking time and equipment may need adjusting.
+            {reference && ' Review leftover and potluck suitability yourself.'}
           </p>
           <label className="checkLabel">
             <input
@@ -596,9 +589,9 @@ export function RecipeForm({
           <label className="checkLabel">
             <input type="checkbox" required />
             {reference
-              ? 'I reviewed the ingredient amounts, serving yield and practical batch size. Any photo I upload is mine or permitted.'
+              ? 'I reviewed the ingredient amounts and serving yield. Any photo I upload is mine or permitted.'
               : aiDraft
-                ? 'I reviewed this AI-drafted recipe: amounts, servings, batch size and steps.'
+                ? 'I reviewed this AI-drafted recipe: amounts, servings and steps.'
                 : 'These are my own recipe details, or I have permission to save them.'}
           </label>
           <label>

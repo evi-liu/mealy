@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@base-ui/react/button'
 import { Dialog } from '@base-ui/react/dialog'
-import { Heart, Pin, RotateCcw, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, Heart, Pin, RotateCcw, Sparkles } from 'lucide-react'
 import {
   placeRemix,
   recipeQuantity,
@@ -14,6 +14,7 @@ import {
 } from './domain'
 import type { HouseholdStore } from './store'
 import { RecipeArt } from './RecipeArt'
+import { AiBadge } from './AiBadge'
 import { useConfirm } from './confirm'
 import { useGroceryUnits } from './useGroceryUnits'
 import { flyToDeck } from './motion/flyToDeck'
@@ -34,7 +35,6 @@ const fieldLabels: Record<FieldChange['field'], string> = {
   title: 'Name',
   description: 'Description',
   servings: 'Makes',
-  maxServings: 'Max batch',
   minutes: 'Minutes',
   protein: 'Main protein',
   leftovers: 'Leftover lunches',
@@ -133,7 +133,7 @@ export function RecipeDetails({
   change: HouseholdStore['change']
   ai: RecipeAi
   saveRemix: (save: RemixSave) => void
-  /** The household store's last error; the app banner sits behind this card. */
+  /** The household store's last error; the app banner sits behind this view. */
   storeError?: string
   close: () => void
 }) {
@@ -260,8 +260,8 @@ export function RecipeDetails({
       }))
     )
       return
-    // Reference facts belong to the imported recipe, not the remix.
-    const { facts, ...rest } = recipe
+    // Source facts and the original photo do not describe the changed dish.
+    const { facts, imagePath, ...rest } = recipe
     saveRemix({
       recipe: { ...rest, ...current.recipe, source: 'own', aiDraft },
       original: recipe,
@@ -280,307 +280,316 @@ export function RecipeDetails({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Backdrop className="dialogBackdrop" />
-        <Dialog.Popup className="dialogPopup">
-          <Dialog.Title>{shown.title}</Dialog.Title>
-          <Dialog.Description>
-            {current
-              ? 'Unsaved AI remix. Not kitchen-tested.'
-              : recipe.aiDraft
-                ? 'Your household recipe, drafted with AI and reviewed by you. Not kitchen-tested.'
-                : recipe.source === 'reference'
-                  ? 'Imported from a recipe source, with its ingredients and directions.'
-                  : 'Your household recipe.'}
-          </Dialog.Description>
-          <Dialog.Close className="dialogClose" aria-label="Close recipe">
-            <X size={20} />
-          </Dialog.Close>
-          <RecipeArt recipe={recipe} household={household} />
-          {/* An untried remix is pinned by saving it and loved after cooking. */}
-          {!current && (
-            <div className="buttonRow detailActions">
-              {planned?.recipeId === recipe.id && (
-                <Button
-                  className={`textButton pinRecipe ${pinned ? 'pinned' : ''}`}
-                  aria-label={`${pinned ? 'Unpin' : 'Pin'} ${recipe.title}`}
-                  aria-pressed={pinned}
-                  onClick={async (e) => {
-                    const button = e.currentTarget
-                    if (
-                      (await change(
-                        (s) => ({
-                          ...s,
-                          plan: s.plan.map((p, i) =>
-                            i === slot ? { ...p, pinned: !p.pinned } : p,
-                          ),
-                        }),
-                        { kind: 'pin', recipeId: recipe.id },
-                      )) &&
-                      !pinned
-                    )
-                      flyToDeck(button)
-                  }}
-                >
-                  <Pin size={14} fill={pinned ? 'currentColor' : 'none'} />
-                  {pinned ? 'Unpin' : 'Pin'}
-                </Button>
-              )}
-              <LovedButton
-                loved={loved}
-                onToggle={() => {
-                  const { event } = toggleLoved(state, recipe.id)
-                  return change((s) => toggleLoved(s, recipe.id).state, event)
-                }}
-              />
-            </div>
-          )}
-          {current && diff && (
-            <section
-              ref={banner}
-              className="notice aiNotice remixBanner"
-              aria-live="polite"
+        <Dialog.Popup className="dialogPopup recipePage">
+          <header className="recipePageHeader">
+            <Dialog.Close
+              className="iconButton"
+              aria-label="Back to previous screen"
             >
-              <strong>
-                <Sparkles size={15} /> Unsaved remix · AI-drafted
-              </strong>
+              <ArrowLeft size={22} aria-hidden="true" />
+            </Dialog.Close>
+          </header>
+          <div className="recipePageContent">
+            <Dialog.Title render={<h1 />}>{shown.title}</Dialog.Title>
+            <Dialog.Description>
+              {current
+                ? 'Unsaved AI remix. Not kitchen-tested.'
+                : recipe.aiDraft
+                  ? 'Your household recipe, drafted with AI and reviewed by you. Not kitchen-tested.'
+                  : recipe.source === 'reference'
+                    ? 'Imported from a recipe source, with its ingredients and directions.'
+                    : 'Your household recipe.'}
+            </Dialog.Description>
+            <RecipeArt
+              recipe={current ? { ...recipe, imagePath: undefined } : recipe}
+              household={household}
+            />
+            {/* An untried remix is pinned by saving it and loved after cooking. */}
+            {!current && (
+              <div className="buttonRow detailActions">
+                {planned?.recipeId === recipe.id && (
+                  <Button
+                    className={`textButton pinRecipe ${pinned ? 'pinned' : ''}`}
+                    aria-label={`${pinned ? 'Unpin' : 'Pin'} ${recipe.title}`}
+                    aria-pressed={pinned}
+                    onClick={async (e) => {
+                      const button = e.currentTarget
+                      if (
+                        (await change(
+                          (s) => ({
+                            ...s,
+                            plan: s.plan.map((p, i) =>
+                              i === slot ? { ...p, pinned: !p.pinned } : p,
+                            ),
+                          }),
+                          { kind: 'pin', recipeId: recipe.id },
+                        )) &&
+                        !pinned
+                      )
+                        flyToDeck(button)
+                    }}
+                  >
+                    <Pin size={14} fill={pinned ? 'currentColor' : 'none'} />
+                    {pinned ? 'Unpin' : 'Pin'}
+                  </Button>
+                )}
+                <LovedButton
+                  loved={loved}
+                  onToggle={() => {
+                    const { event } = toggleLoved(state, recipe.id)
+                    return change((s) => toggleLoved(s, recipe.id).state, event)
+                  }}
+                />
+              </div>
+            )}
+            {current && diff && (
+              <section
+                ref={banner}
+                className="notice aiNotice remixBanner"
+                aria-live="polite"
+              >
+                <strong>
+                  <AiBadge /> Unsaved remix
+                </strong>
+                <p>
+                  {diff.counts.added} added · {diff.counts.removed} removed ·{' '}
+                  {diff.counts.changed} changed
+                </p>
+                {diff.general.length > 0 && (
+                  <ul>
+                    {diff.general.map((note, index) => (
+                      <li key={index}>{note}</li>
+                    ))}
+                  </ul>
+                )}
+                <div className="buttonRow">
+                  <Button
+                    className="textButton"
+                    onClick={() => setRemixes((list) => list.slice(0, -1))}
+                  >
+                    <RotateCcw size={14} /> Undo last change
+                  </Button>
+                  <Button className="textButton" onClick={() => setRemixes([])}>
+                    Discard remix
+                  </Button>
+                </div>
+                {storeError && (
+                  <p role="alert" className="error">
+                    {storeError}
+                  </p>
+                )}
+                <div className="buttonRow">
+                  <Button
+                    className="primaryButton"
+                    onClick={(e) => void save(false, e.currentTarget)}
+                  >
+                    Save as new recipe
+                  </Button>
+                  <Button
+                    className="secondaryButton"
+                    onClick={(e) => void save(true, e.currentTarget)}
+                  >
+                    Replace original
+                  </Button>
+                </div>
+              </section>
+            )}
+            <div
+              key={remixes.length}
+              className={remixes.length ? 'draftReveal' : undefined}
+            >
+              <p>{shown.description}</p>
+              {recipe.sourceUrl && !current && (
+                <p className="helper">
+                  Source reference:{' '}
+                  <a
+                    href={recipe.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {sourceName(recipe.sourceUrl)}
+                  </a>
+                  {recipe.source === 'reference'
+                    ? '. Ingredients, yield, time and directions were imported.'
+                    : '. Recipe details below were entered by your household, not imported.'}
+                </p>
+              )}
               <p>
-                {diff.counts.added} added · {diff.counts.removed} removed ·{' '}
-                {diff.counts.changed} changed
+                <strong>{portions} servings</strong> · {shown.minutes} min for
+                original batch · {scale.toFixed(2)}x quantities
               </p>
-              {diff.general.length > 0 && (
-                <ul>
-                  {diff.general.map((note, index) => (
-                    <li key={index}>{note}</li>
+              {diff && diff.fields.length > 0 && (
+                <ul className="changeList">
+                  {diff.fields.map((field) => (
+                    <li key={field.field} className="chg-changed">
+                      <span className="changeTag">Changed</span>
+                      {fieldLabels[field.field]}:{' '}
+                      {field.field === 'description' ? (
+                        'updated'
+                      ) : (
+                        <>
+                          <del>{fieldValue(field.before)}</del> →{' '}
+                          {fieldValue(field.after)}
+                        </>
+                      )}
+                      <AiNote note={field.note} />
+                    </li>
                   ))}
                 </ul>
               )}
-              <div className="buttonRow">
-                <Button
-                  className="textButton"
-                  onClick={() => setRemixes((list) => list.slice(0, -1))}
-                >
-                  <RotateCcw size={14} /> Undo last change
-                </Button>
-                <Button className="textButton" onClick={() => setRemixes([])}>
-                  Discard remix
-                </Button>
-              </div>
-              {storeError && (
-                <p role="alert" className="error">
-                  {storeError}
-                </p>
-              )}
-              <div className="buttonRow">
-                <Button
-                  className="primaryButton"
-                  onClick={(e) => void save(false, e.currentTarget)}
-                >
-                  Save as new recipe
-                </Button>
-                <Button
-                  className="secondaryButton"
-                  onClick={(e) => void save(true, e.currentTarget)}
-                >
-                  Replace original
-                </Button>
-              </div>
-            </section>
-          )}
-          <div
-            key={remixes.length}
-            className={remixes.length ? 'draftReveal' : undefined}
-          >
-            <p>{shown.description}</p>
-            {recipe.sourceUrl && !current && (
               <p className="helper">
-                Source reference:{' '}
+                Cooking time and equipment may change with batch size.
+                Refrigerate leftovers promptly; freeze portions that will not be
+                eaten within 3-4 days.
+              </p>
+              <div className="ingredientsHeading">
+                <h3>Ingredients</h3>
+                <div
+                  className="unitToggle"
+                  role="group"
+                  aria-label="Recipe unit system"
+                >
+                  {(['us', 'metric'] as const).map((system) => (
+                    <Button
+                      key={system}
+                      aria-pressed={units === system}
+                      onClick={() => setUnits(system)}
+                    >
+                      {system === 'metric' ? 'Metric' : 'US kitchen'}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              {diff ? (
+                <ul className="changeList">
+                  {diff.ingredients.map((item, index) => (
+                    <li key={index} className={`chg-${item.change}`}>
+                      {item.change !== 'same' && (
+                        <span className="changeTag">
+                          {changeLabel[item.change]}
+                        </span>
+                      )}
+                      {item.change === 'removed' ? (
+                        <del>{amount(item.ingredient)}</del>
+                      ) : (
+                        amount(item.ingredient)
+                      )}
+                      {item.before && (
+                        <small className="wasValue">
+                          was {quantity(item.before)}
+                        </small>
+                      )}
+                      <AiNote note={item.note} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <ul>
+                  {recipe.ingredients.map((item, index) => (
+                    <li key={index}>{amount(item)}</li>
+                  ))}
+                </ul>
+              )}
+              {!current && recipe.facts?.needsReview && (
+                <>
+                  <h3>Review before planning</h3>
+                  <p>
+                    Confirm the ingredients, original serving yield and leftover
+                    suitability.
+                  </p>
+                  <ul>
+                    {recipe.facts.pendingIngredients.map((item, index) => (
+                      <li key={index}>
+                        {item.sourceText} — {item.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {!current && recipe.facts && (
+                <details>
+                  <summary>Original ingredient facts</summary>
+                  <p className="helper">
+                    Source snapshot:{' '}
+                    {new Date(recipe.facts.retrievedAt).toLocaleDateString()}
+                  </p>
+                  <ul>
+                    {recipe.facts.ingredientLines.map((line, index) => (
+                      <li key={index}>{line}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              {diff ? (
+                <>
+                  <h3>Method</h3>
+                  <ol className="changeList">
+                    {diff.steps.map((step, index) => (
+                      <li
+                        key={index}
+                        className={`chg-${step.change}`}
+                        value={step.number}
+                      >
+                        {step.change !== 'same' && (
+                          <span className="changeTag">
+                            {changeLabel[step.change]}
+                          </span>
+                        )}
+                        {step.change === 'removed' ? (
+                          <del>{step.text}</del>
+                        ) : (
+                          step.text
+                        )}
+                        {step.before && (
+                          <small className="wasValue">was: {step.before}</small>
+                        )}
+                        <AiNote note={step.note} />
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              ) : (
+                recipe.instructions.length > 0 && (
+                  <>
+                    <h3>Method</h3>
+                    <ol>
+                      {recipe.instructions.map((step, index) => (
+                        <li key={index}>{step}</li>
+                      ))}
+                    </ol>
+                  </>
+                )
+              )}
+              {recipe.sourceUrl && (
                 <a
+                  className="secondaryButton"
                   href={recipe.sourceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  {sourceName(recipe.sourceUrl)}
+                  View the original on {sourceName(recipe.sourceUrl)}
                 </a>
-                {recipe.source === 'reference'
-                  ? '. Ingredients, yield, time and directions were imported; photos were not.'
-                  : '. Recipe details below were entered by your household, not imported.'}
+              )}
+            </div>
+            {pending && (
+              <p role="status" className="helper">
+                Remixing...
               </p>
             )}
-            <p>
-              <strong>{portions} servings</strong> · {shown.minutes} min for
-              original batch · {scale.toFixed(2)}x quantities
-            </p>
-            {diff && diff.fields.length > 0 && (
-              <ul className="changeList">
-                {diff.fields.map((field) => (
-                  <li key={field.field} className="chg-changed">
-                    <span className="changeTag">Changed</span>
-                    {fieldLabels[field.field]}:{' '}
-                    {field.field === 'description' ? (
-                      'updated'
-                    ) : (
-                      <>
-                        <del>{fieldValue(field.before)}</del> →{' '}
-                        {fieldValue(field.after)}
-                      </>
-                    )}
-                    <AiNote note={field.note} />
-                  </li>
-                ))}
-              </ul>
+            {aiError && (
+              <p role="alert" className="error">
+                {aiError}
+              </p>
             )}
-            <p className="helper">
-              Cooking time and equipment may change with batch size. Refrigerate
-              leftovers promptly; freeze portions that will not be eaten within
-              3-4 days.
-            </p>
-            <div className="ingredientsHeading">
-              <h3>Ingredients</h3>
-              <div
-                className="unitToggle"
-                role="group"
-                aria-label="Recipe unit system"
-              >
-                {(['us', 'metric'] as const).map((system) => (
-                  <Button
-                    key={system}
-                    aria-pressed={units === system}
-                    onClick={() => setUnits(system)}
-                  >
-                    {system === 'metric' ? 'Metric' : 'US kitchen'}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            {diff ? (
-              <ul className="changeList">
-                {diff.ingredients.map((item, index) => (
-                  <li key={index} className={`chg-${item.change}`}>
-                    {item.change !== 'same' && (
-                      <span className="changeTag">
-                        {changeLabel[item.change]}
-                      </span>
-                    )}
-                    {item.change === 'removed' ? (
-                      <del>{amount(item.ingredient)}</del>
-                    ) : (
-                      amount(item.ingredient)
-                    )}
-                    {item.before && (
-                      <small className="wasValue">
-                        was {quantity(item.before)}
-                      </small>
-                    )}
-                    <AiNote note={item.note} />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <ul>
-                {recipe.ingredients.map((item, index) => (
-                  <li key={index}>{amount(item)}</li>
-                ))}
-              </ul>
-            )}
-            {!current && recipe.facts?.needsReview && (
-              <>
-                <h3>Review before planning</h3>
-                <p>
-                  Confirm the ingredients, your practical batch size and
-                  leftover suitability.
-                </p>
-                <ul>
-                  {recipe.facts.pendingIngredients.map((item, index) => (
-                    <li key={index}>
-                      {item.sourceText} — {item.reason}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-            {!current && recipe.facts && (
-              <details>
-                <summary>Original ingredient facts</summary>
-                <p className="helper">
-                  Source snapshot:{' '}
-                  {new Date(recipe.facts.retrievedAt).toLocaleDateString()}
-                </p>
-                <ul>
-                  {recipe.facts.ingredientLines.map((line, index) => (
-                    <li key={index}>{line}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
-            {diff ? (
-              <>
-                <h3>Method</h3>
-                <ol className="changeList">
-                  {diff.steps.map((step, index) => (
-                    <li
-                      key={index}
-                      className={`chg-${step.change}`}
-                      value={step.number}
-                    >
-                      {step.change !== 'same' && (
-                        <span className="changeTag">
-                          {changeLabel[step.change]}
-                        </span>
-                      )}
-                      {step.change === 'removed' ? (
-                        <del>{step.text}</del>
-                      ) : (
-                        step.text
-                      )}
-                      {step.before && (
-                        <small className="wasValue">was: {step.before}</small>
-                      )}
-                      <AiNote note={step.note} />
-                    </li>
-                  ))}
-                </ol>
-              </>
-            ) : (
-              recipe.instructions.length > 0 && (
-                <>
-                  <h3>Method</h3>
-                  <ol>
-                    {recipe.instructions.map((step, index) => (
-                      <li key={index}>{step}</li>
-                    ))}
-                  </ol>
-                </>
-              )
-            )}
-            {recipe.sourceUrl && (
-              <a
-                className="secondaryButton"
-                href={recipe.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                View the original on {sourceName(recipe.sourceUrl)}
-              </a>
-            )}
+            <PromptBar
+              quiet
+              label="Remix this recipe"
+              placeholder="I want to remix this recipe..."
+              submitLabel="Remix recipe"
+              pending={pending}
+              onSubmit={remix}
+            />
           </div>
-          {pending && (
-            <p role="status" className="helper">
-              Remixing...
-            </p>
-          )}
-          {aiError && (
-            <p role="alert" className="error">
-              {aiError}
-            </p>
-          )}
-          <PromptBar
-            quiet
-            label="Remix this recipe"
-            placeholder="I want to remix this recipe..."
-            submitLabel="Remix recipe"
-            pending={pending}
-            onSubmit={remix}
-          />
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

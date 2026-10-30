@@ -3,6 +3,225 @@ import AxeBuilder from '@axe-core/playwright'
 import type { Locator, Page } from '@playwright/test'
 import { initialState } from '../src/domain'
 
+test('recipe details fill the mobile screen and Back restores the library search', async ({
+  page,
+  kitchen,
+}) => {
+  await page.setViewportSize({ width: 390, height: 700 })
+  await page.goto('./#recipes')
+  await page
+    .getByRole('button', { name: 'Search recipes', exact: true })
+    .click()
+  const search = page.getByRole('searchbox', { name: 'Search recipes' })
+  await search.fill('chickpea')
+  const title = page.getByRole('button', {
+    name: kitchen.state.recipes[0].title,
+    exact: true,
+  })
+  await title.focus()
+  await title.press('Enter')
+  const recipe = page.getByRole('dialog')
+  await expect(recipe).toBeVisible()
+  const box = (await recipe.boundingBox())!
+  expect(box.x).toBe(0)
+  expect(box.y).toBe(0)
+  expect(box.width).toBe(390)
+  expect(box.height).toBe(700)
+  await expect(recipe).toHaveCSS('border-radius', '0px')
+  await expect(page.locator('.dialogBackdrop')).toHaveCount(0)
+  const back = recipe.getByRole('button', { name: 'Back to previous screen' })
+  await expect(back).toBeFocused()
+  const backBox = (await back.boundingBox())!
+  expect(backBox.x).toBeLessThan(30)
+  expect(backBox.y).toBeLessThan(30)
+  await recipe.getByLabel('Remix this recipe').scrollIntoViewIfNeeded()
+  expect((await back.boundingBox())!.y).toBeLessThan(30)
+  await back.click()
+  await expect(recipe).toHaveCount(0)
+  await expect(search).toHaveValue('chickpea')
+  await expect(title).toBeFocused()
+})
+
+test('AI creation uses a focused tall prompt sheet with cancel and no form fields', async ({
+  page,
+  kitchen,
+}) => {
+  await page.setViewportSize({ width: 320, height: 568 })
+  await page.goto('./#recipes')
+  const add = page.getByRole('button', { name: 'Add recipe', exact: true })
+  await add.click()
+  await page.getByRole('button', { name: /Add with AI/ }).click()
+  const sheet = page.getByRole('dialog', { name: 'New recipe' })
+  const prompt = sheet.getByLabel('Describe a recipe to add')
+  await expect(prompt).toBeFocused()
+  await expect(
+    sheet.getByRole('button', { name: 'Draft recipe' }),
+  ).toBeDisabled()
+  await expect(page.getByLabel('Recipe name', { exact: true })).toHaveCount(0)
+  const bounds = (await sheet.boundingBox())!
+  expect(bounds.height).toBeGreaterThan(500)
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(569)
+  await prompt.fill('A quick noodle dish\nwith crunchy vegetables')
+  expect(
+    (await new AxeBuilder({ page }).include('[role="dialog"]').analyze())
+      .violations,
+  ).toEqual([])
+  // A mobile keyboard reduces the visual viewport without resizing the layout viewport.
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport!, 'height', {
+      configurable: true,
+      value: 320,
+    })
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+  })
+  await expect
+    .poll(async () => {
+      const box = (await sheet
+        .getByRole('button', { name: 'Draft recipe' })
+        .boundingBox())!
+      return box.y + box.height
+    })
+    .toBeLessThanOrEqual(320)
+  await sheet.getByRole('button', { name: 'Cancel' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(add).toBeFocused()
+  expect(kitchen.aiRequests).toBe(0)
+  await add.click()
+  await page.getByRole('button', { name: /Add with AI/ }).click()
+  await expect(prompt).toHaveValue('')
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+})
+
+test('a pending AI prompt stays in its sheet and preserves the prompt on failure', async ({
+  page,
+  kitchen,
+}) => {
+  const before = structuredClone(kitchen.state)
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let calls = 0
+  await page.route('**/functions/v1/recipe-draft', async (route) => {
+    if (route.request().method() === 'OPTIONS') return route.fallback()
+    calls++
+    await gate
+    await route.fulfill({
+      status: 502,
+      headers: corsHeaders,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'AI is temporarily unavailable.' }),
+    })
+  })
+  await page.goto('./#recipes')
+  await page.getByRole('button', { name: 'Add recipe', exact: true }).click()
+  await page.getByRole('button', { name: /Add with AI/ }).click()
+  const sheet = page.getByRole('dialog', { name: 'New recipe' })
+  const prompt = sheet.getByLabel('Describe a recipe to add')
+  await prompt.fill('Ginger noodles')
+  await prompt.press('Enter')
+  await expect(sheet.getByRole('status')).toContainText('Drafting')
+  await expect(sheet.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+  await prompt.press('Enter')
+  await page.keyboard.press('Escape')
+  await expect(sheet).toBeVisible()
+  release()
+  await expect(sheet.getByRole('alert')).toHaveText(
+    'AI is temporarily unavailable.',
+  )
+  await expect(prompt).toHaveValue('Ginger noodles')
+  await expect(
+    sheet.getByRole('button', { name: 'Draft recipe' }),
+  ).toBeEnabled()
+  expect(calls).toBe(1)
+  expect(kitchen.state).toEqual(before)
+})
+
+test('library search filters saved recipes by title, ingredient and source without AI', async ({
+  page,
+  kitchen,
+}) => {
+  const first = kitchen.state.recipes[0]
+  first.sourceUrl = 'https://tiffycooks.com/example-recipe/'
+  first.aiDraft = {
+    createdAt: new Date().toISOString(),
+    prompts: ['Fill in from the source'],
+  }
+  await page.goto('./#recipes')
+  const search = page.getByRole('button', {
+    name: 'Search recipes',
+    exact: true,
+  })
+  const add = page.getByRole('button', { name: 'Add recipe', exact: true })
+  expect((await search.boundingBox())!.x).toBeLessThan(
+    (await add.boundingBox())!.x,
+  )
+  const originalCount = kitchen.state.recipes.length
+  const row = page.locator('.libraryRow').first()
+  await expect(
+    row.getByRole('img', { name: 'AI-assisted recipe' }),
+  ).toBeVisible()
+  await expect(row).toContainText('Tiffy Cooks')
+  await expect(row).not.toContainText('AI-DRAFTED')
+  await search.click()
+  const input = page.getByRole('searchbox', { name: 'Search recipes' })
+  await expect(input).toBeFocused()
+  await expect(page.locator('.libraryRow')).toHaveCount(originalCount)
+  await input.fill('  LEMONY   chickpea ')
+  await expect(page.locator('.libraryRow')).toHaveCount(1)
+  await expect(page.locator('.libraryRow')).toContainText(first.title)
+  await input.fill('tiffy')
+  await expect(page.locator('.libraryRow')).toHaveCount(1)
+  await input.fill('chickpeas')
+  await expect(
+    page.locator('.libraryRow').filter({ hasText: first.title }),
+  ).toHaveCount(1)
+  await input.fill('no matching recipe here')
+  await expect(page.getByText(/No recipes found/)).toBeVisible()
+  await expect(page.locator('.libraryRow')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Clear search' }).click()
+  await expect(input).toHaveValue('')
+  await expect(input).toBeFocused()
+  await expect(page.locator('.libraryRow')).toHaveCount(originalCount)
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(search).toBeFocused()
+  await expect(add).toBeVisible()
+  await search.click()
+  await expect(input).toHaveValue('')
+  await input.press('Escape')
+  await expect(search).toBeFocused()
+  expect(kitchen.aiRequests).toBe(0)
+})
+
+test('search remains accessible at 320px and supports editing a result', async ({
+  page,
+  kitchen,
+}) => {
+  await page.setViewportSize({ width: 320, height: 568 })
+  await page.goto('./#recipes')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    320,
+  )
+  await page
+    .getByRole('button', { name: 'Search recipes', exact: true })
+    .click()
+  const input = page.getByRole('searchbox', { name: 'Search recipes' })
+  await input.fill(kitchen.state.recipes[0].title)
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    320,
+  )
+  const row = page.locator('.libraryRow')
+  await row.locator('.recipeRowOpen').press('ArrowLeft')
+  await row.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByLabel('Recipe name', { exact: true })).toBeFocused()
+  await page.getByRole('button', { name: 'Back to recipes' }).click()
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue(kitchen.state.recipes[0].title)
+  await expect(row).toHaveCount(1)
+})
+
 async function drag(
   page: Page,
   row: Locator,
@@ -29,6 +248,24 @@ test('compact rows reveal Edit and Delete without opening details during a swipe
   await page.goto('./#recipes')
   const rows = page.locator('.libraryRow')
   const first = rows.first()
+  await expect(
+    page.getByRole('button', { name: /^Recipe actions/ }),
+  ).toHaveCount(0)
+  const heart = first.getByRole('button', {
+    name: 'We loved this',
+    exact: true,
+  })
+  const front = (await first.locator('.recipeRowFront').boundingBox())!
+  const heartBox = (await heart.boundingBox())!
+  expect(
+    Math.abs(heartBox.x + heartBox.width - front.x - front.width),
+  ).toBeLessThan(1)
+  await expect(first).toHaveCSS('border-radius', '0px')
+  await expect(first).toHaveCSS('border-bottom-width', '0px')
+  await expect(first.locator('.recipeRowFront')).toHaveCSS(
+    'background-color',
+    'rgba(0, 0, 0, 0)',
+  )
   for (const row of (await rows.all()).slice(0, 3))
     expect((await row.boundingBox())!.height).toBeLessThanOrEqual(82)
   await expect(
@@ -48,16 +285,14 @@ test('compact rows reveal Edit and Delete without opening details during a swipe
   await expect(first).toHaveAttribute('data-revealed', 'false')
   await drag(page, first, -95, 0, true)
   await expect(first).toHaveAttribute('data-revealed', 'false')
-  await first.getByRole('button', { name: /^Recipe actions/ }).click()
-  await expect(first).toHaveAttribute('data-revealed', 'true')
-  await first.getByRole('button', { name: /^Recipe actions/ }).click()
+  await heart.click()
+  await expect(
+    first.getByRole('button', { name: 'Loved', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true')
   await drag(page, first, -10, 60)
   await expect(first).toHaveAttribute('data-revealed', 'false')
   await drag(page, first, -95)
-  await rows
-    .nth(1)
-    .getByRole('button', { name: /^Recipe actions/ })
-    .click()
+  await rows.nth(1).locator('.recipeRowOpen').press('ArrowLeft')
   await expect(first).toHaveAttribute('data-revealed', 'false')
   await expect(rows.nth(1)).toHaveAttribute('data-revealed', 'true')
   await rows.nth(1).getByRole('button', { name: 'Edit', exact: true }).click()
@@ -74,10 +309,8 @@ test('row actions are keyboard accessible and fit a narrow screen', async ({
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('./#recipes')
   const first = page.locator('.libraryRow').first()
-  const more = first.getByRole('button', { name: /^Recipe actions/ })
-  await more.focus()
-  await page.keyboard.press('Enter')
-  await page.keyboard.press('Tab')
+  const title = first.locator('.recipeRowOpen')
+  await title.press('ArrowLeft')
   await expect(
     first.getByRole('button', { name: 'Edit', exact: true }),
   ).toBeFocused()
@@ -90,8 +323,14 @@ test('row actions are keyboard accessible and fit a narrow screen', async ({
     320,
   )
   await page.keyboard.press('Escape')
-  await expect(more).toBeFocused()
+  await expect(title).toBeFocused()
   await expect(first).toHaveAttribute('data-revealed', 'false')
+  await title.click({ button: 'right' })
+  await expect(
+    first.getByRole('button', { name: 'Edit', exact: true }),
+  ).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(title).toBeFocused()
 })
 
 test('real touch swipes reveal actions while vertical gestures still scroll', async ({
@@ -123,7 +362,7 @@ test('real touch swipes reveal actions while vertical gestures still scroll', as
     touchPoints: [],
   })
   await expect(first).toHaveAttribute('data-revealed', 'true')
-  await first.getByRole('button', { name: /^Recipe actions/ }).click()
+  await first.locator('.recipeRowOpen').press('Escape')
   await cdp.send('Input.dispatchTouchEvent', {
     type: 'touchStart',
     touchPoints: [{ x: 180, y: 440 }],
@@ -183,7 +422,7 @@ test('photo cleanup happens after deletion, but never for a shared photo', async
   await page.goto('./#recipes')
   for (let index = 0; index < 2; index++) {
     const row = page.locator('.libraryRow').first()
-    await row.getByRole('button', { name: /^Recipe actions/ }).click()
+    await row.locator('.recipeRowOpen').press('ArrowLeft')
     await row.getByRole('button', { name: 'Delete', exact: true }).click()
     await page
       .getByRole('button', { name: 'Delete recipe', exact: true })
@@ -196,6 +435,9 @@ test('photo cleanup happens after deletion, but never for a shared photo', async
           ).length,
       )
       .toBe(1 - index)
+    await expect(
+      page.getByRole('button', { name: 'Add recipe', exact: true }),
+    ).toBeFocused()
     if (!index) expect(removals).toEqual([])
   }
   await expect.poll(() => removals).toEqual([[imagePath]])
@@ -253,7 +495,7 @@ test('deletion requires confirmation and clears dependent planning state, not pa
     has: page.getByRole('button', { name: recipe.title, exact: true }),
   })
   const remove = async () => {
-    await row.getByRole('button', { name: /^Recipe actions/ }).click()
+    await row.locator('.recipeRowOpen').press('ArrowLeft')
     await row.getByRole('button', { name: 'Delete', exact: true }).click()
   }
   await remove()
@@ -289,7 +531,7 @@ test('failed deletion keeps the saved recipe and reports the failure', async ({
   await page.goto('./#recipes')
   const count = kitchen.state.recipes.length
   const row = page.locator('.libraryRow').first()
-  await row.getByRole('button', { name: /^Recipe actions/ }).click()
+  await row.locator('.recipeRowOpen').press('ArrowLeft')
   await row.getByRole('button', { name: 'Delete', exact: true }).click()
   await page.getByRole('button', { name: 'Delete recipe', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Test save unavailable')
@@ -303,7 +545,7 @@ test('a concurrent edit prevents deletion of a stale recipe', async ({
 }) => {
   await page.goto('./#recipes')
   const row = page.locator('.libraryRow').first()
-  await row.getByRole('button', { name: /^Recipe actions/ }).click()
+  await row.locator('.recipeRowOpen').press('ArrowLeft')
   await row.getByRole('button', { name: 'Delete', exact: true }).click()
   kitchen.state.recipes[0] = {
     ...kitchen.state.recipes[0],

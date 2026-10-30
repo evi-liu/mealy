@@ -234,13 +234,17 @@ describe('deterministic plan constraints', () => {
   it('never includes a skipped or blocked recipe to fill a gap', () => {
     const state = ready()
     state.decisions = { 'fixture-1': 'like', 'fixture-2': 'skip' }
-    expect(() => buildPlan(state)).toThrow('Not enough')
+    expect(() => buildPlan(state)).toThrow('Your likes need')
     state.blocked = ['fixture-1']
     expect(() => buildPlan(state)).toThrow()
   })
   it('requires a separate viable Kairos dish with eight servings', () => {
     const state = ready()
     state.settings.kairos = true
+    state.recipes = state.recipes.map((recipe) => ({
+      ...recipe,
+      maxServings: 2,
+    }))
     const plan = buildPlan(state)
     expect(plan).toHaveLength(3)
     expect(plan.find((p) => p.role === 'kairos')?.servings).toBe(8)
@@ -249,12 +253,58 @@ describe('deterministic plan constraints', () => {
     state.recipes = state.recipes.map((r) => ({ ...r, potluck: false }))
     expect(() => buildPlan(state)).toThrow()
   })
-  it('enforces leftover capability and maximum batch sizes', () => {
+  it('honors leftover suitability but ignores legacy batch-size caps', () => {
     const state = ready()
     state.recipes = state.recipes.map((r) => ({ ...r, leftovers: false }))
     expect(() => buildPlan(state)).toThrow()
     state.recipes = fixtureRecipes.map((r) => ({ ...r, maxServings: 6 }))
-    expect(() => buildPlan(state)).toThrow()
+    expect(buildPlan(state).reduce((sum, slot) => sum + slot.servings, 0)).toBe(
+      14,
+    )
+  })
+  it('scales the liked stew and pork beyond their old caps without adding skipped recipes', () => {
+    const state = ready()
+    state.recipes = fixtureRecipes.slice(0, 5).map((recipe, index) => ({
+      ...recipe,
+      servings: index === 1 ? 8 : 4,
+      maxServings: index === 1 ? 8 : 4,
+      leftovers: index < 2,
+    }))
+    state.decisions = Object.fromEntries(
+      state.recipes.map((recipe, index) => [
+        recipe.id,
+        index < 4 ? 'like' : 'skip',
+      ]),
+    )
+    const plan = buildPlan(state)
+    expect(plan).toHaveLength(2)
+    expect(plan.reduce((sum, slot) => sum + slot.servings, 0)).toBe(14)
+    expect(
+      plan.every((slot) => state.decisions[slot.recipeId] === 'like'),
+    ).toBe(true)
+    expect(
+      plan.some(
+        (slot) =>
+          slot.servings >
+          state.recipes.find((recipe) => recipe.id === slot.recipeId)!
+            .maxServings,
+      ),
+    ).toBe(true)
+    const rice = groceries(plan, state.recipes, []).find(
+      (item) => item.name === 'rice',
+    )
+    const expected = plan.reduce((sum, slot) => {
+      const recipe = state.recipes.find(
+        (recipe) => recipe.id === slot.recipeId,
+      )!
+      const ingredient = recipe.ingredients.find((item) => item.name === 'rice')
+      return (
+        sum +
+        (ingredient ? (ingredient.amount * slot.servings) / recipe.servings : 0)
+      )
+    }, 0)
+    expect(expected).toBeGreaterThan(0)
+    expect(rice?.required).toBeCloseTo(expected)
   })
   it('handles zero dinners only with zero lunches', () => {
     const state = ready()
@@ -292,14 +342,20 @@ describe('deterministic plan constraints', () => {
     state.plan[0].pinned = true
     expect(() => swapRecipe(state, 0, recipe.id)).toThrow('Unpin')
   })
-  it('rejects a swap that loses lunch or serving coverage', () => {
+  it('scales swaps beyond old caps but rejects a loss of leftover suitability', () => {
     const state = ready()
     state.plan = buildPlan(state)
     state.decisions['fixture-10'] = 'like'
     state.recipes = state.recipes.map((r) =>
       r.id === 'fixture-10' ? { ...r, maxServings: 2 } : r,
     )
-    expect(() => swapRecipe(state, 0, 'fixture-10')).toThrow('servings')
+    expect(swapRecipe(state, 0, 'fixture-10')[0].servings).toBe(
+      state.plan[0].servings,
+    )
+    state.recipes = state.recipes.map((r) =>
+      r.id === 'fixture-10' ? { ...r, leftovers: false } : r,
+    )
+    expect(() => swapRecipe(state, 0, 'fixture-10')).toThrow('suitable')
   })
   it('covers every dinner/travel combination without changing requested recipe counts', () => {
     for (let dinners = 1; dinners <= 7; dinners++)
@@ -422,7 +478,12 @@ describe('remixes and loved feedback', () => {
   it('puts a fitting remix in its original slot, pinned and liked', () => {
     const state = planned()
     const original = state.recipes.find((r) => r.id === state.plan[0].recipeId)!
-    const remix: Recipe = { ...original, id: 'remix-1', source: 'own' }
+    const remix: Recipe = {
+      ...original,
+      id: 'remix-1',
+      source: 'own',
+      maxServings: 2,
+    }
     const next = placeRemix(state, 0, original.id, remix)!
     expect(next.plan[0]).toMatchObject({ recipeId: 'remix-1', pinned: true })
     expect(next.plan[1]).toEqual(state.plan[1])

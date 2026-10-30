@@ -32,7 +32,7 @@ test('imports source facts, reviews a recipe and plans only reviewed quantities'
   const salmon = tiffyRecipeFacts[5]
   const row = page.locator('.recipeEntry').filter({ hasText: salmon.title })
   await row.getByRole('button', { name: salmon.title, exact: true }).click()
-  await expect(page.getByLabel('Max batch servings')).toHaveValue('2')
+  await expect(page.getByLabel('Max batch servings')).toHaveCount(0)
   // Directions are optional for an import and can be added here.
   await expect(
     page.getByLabel('Instructions (one step per line)'),
@@ -45,7 +45,6 @@ test('imports source facts, reviews a recipe and plans only reviewed quantities'
     ).violations,
   ).toEqual([])
   await page.getByLabel('Main protein / variety').fill('salmon')
-  await page.getByLabel('Max batch servings').fill('4')
   await page
     .getByRole('checkbox', { name: 'Good for leftover lunches' })
     .check()
@@ -54,8 +53,8 @@ test('imports source facts, reviews a recipe and plans only reviewed quantities'
     .check()
   await page.getByRole('button', { name: 'Save recipe', exact: true }).click()
   await row
-    .getByRole('button', { name: `Recipe actions for ${salmon.title}` })
-    .click()
+    .getByRole('button', { name: salmon.title, exact: true })
+    .press('ArrowLeft')
   await expect(
     row.getByRole('button', { name: 'Edit', exact: true }),
   ).toBeVisible()
@@ -110,8 +109,8 @@ test('unresolved source amounts stay blank until the household reviews them', as
     .selectOption('each')
   await page.getByRole('button', { name: 'Save recipe', exact: true }).click()
   await page
-    .getByRole('button', { name: `Recipe actions for ${recipe.title}` })
-    .click()
+    .getByRole('button', { name: recipe.title, exact: true })
+    .press('ArrowLeft')
   await expect(
     page
       .locator('.recipeEntry')

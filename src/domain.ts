@@ -84,6 +84,7 @@ export const recipeSchema = z
     title: text,
     description: z.string().max(500),
     servings: z.number().int().min(1).max(30),
+    /** Legacy storage/AI field; never a planning or scaling limit. */
     maxServings: z.number().int().min(2).max(60),
     minutes: z.number().int().min(1).max(1440),
     protein: text,
@@ -423,8 +424,7 @@ function allocate(
   potluck: Recipe | undefined,
   settings: Settings,
 ): Slot[] | null {
-  if (potluck && (!potluck.potluck || potluck.maxServings < 8)) return null
-  if (dinners.some((recipe) => recipe.maxServings < 2)) return null
+  if (potluck && !potluck.potluck) return null
   const slots: Slot[] = dinners.map((recipe) => ({
     recipeId: recipe.id,
     servings: 2,
@@ -436,7 +436,7 @@ function allocate(
   while (remaining > 0) {
     let placed = false
     for (let i = 0; i < dinners.length && remaining > 0; i++) {
-      if (dinners[i].leftovers && slots[i].servings < dinners[i].maxServings) {
+      if (dinners[i].leftovers) {
         slots[i].servings++
         remaining--
         placed = true
@@ -465,7 +465,7 @@ export function buildPlan(state: State): Slot[] {
   let best: Slot[] | null = null
   let bestScore = -Infinity
   const potlucks: (Recipe | undefined)[] = state.settings.kairos
-    ? liked.filter((r) => r.potluck && r.maxServings >= 8)
+    ? liked.filter((r) => r.potluck)
     : [undefined]
   for (const potluck of potlucks) {
     for (const dinnerRecipes of combinations(
@@ -509,7 +509,7 @@ export function buildPlan(state: State): Slot[] {
   }
   if (!best)
     throw new Error(
-      'Not enough viable liked recipes. Like more leftover-friendly options, add an 8-serving potluck option if needed, or adjust dinners/travel. Zero dinners cannot supply lunches.',
+      'Your likes need to cover the selected dinner count, leftover lunches and a separate potluck-friendly recipe if Kairos is on. Quantities scale automatically. Zero dinners cannot supply lunches.',
     )
   return best
 }
@@ -532,12 +532,13 @@ export function swapRecipe(
   )
     throw new Error('Choose a different liked recipe.')
   if (
-    recipe.maxServings < slot.servings ||
-    (slot.role === 'kairos'
+    slot.role === 'kairos'
       ? !recipe.potluck
-      : slot.servings > 2 && !recipe.leftovers)
+      : slot.servings > 2 && !recipe.leftovers
   )
-    throw new Error('This recipe cannot cover the required servings.')
+    throw new Error(
+      'Choose a recipe suitable for this slot: leftover lunches or a potluck.',
+    )
   return state.plan.map((item, i) =>
     i === index ? { ...item, recipeId } : item,
   )
@@ -578,10 +579,9 @@ export function placeRemix(
   const slot = state.plan[slotIndex]
   if (!slot || slot.recipeId !== originalId || !recipeReady(recipe)) return null
   const fits =
-    recipe.maxServings >= slot.servings &&
-    (slot.role === 'kairos'
+    slot.role === 'kairos'
       ? recipe.potluck
-      : slot.servings <= 2 || recipe.leftovers)
+      : slot.servings <= 2 || recipe.leftovers
   if (!fits) return null
   return {
     ...state,

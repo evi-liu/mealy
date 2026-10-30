@@ -10,6 +10,38 @@ async function like(page: Page, count: number) {
   for (let i = 0; i < count; i++)
     await page.getByRole('button', { name: 'Appealing this week' }).click()
 }
+test('finished swiping can build beyond legacy batch limits using only likes', async ({
+  page,
+  kitchen,
+}) => {
+  kitchen.state.phase = 'swipe'
+  kitchen.state.recipes = kitchen.state.recipes
+    .slice(0, 5)
+    .map((recipe, index) => ({
+      ...recipe,
+      maxServings: index === 1 ? 8 : 4,
+      leftovers: index < 2,
+    }))
+  kitchen.state.queue = kitchen.state.recipes.map((recipe) => recipe.id)
+  kitchen.state.decisions = Object.fromEntries(
+    kitchen.state.queue.map((id, index) => [id, index < 4 ? 'like' : 'skip']),
+  )
+  await page.goto('./#plan')
+  await expect(page.getByText('4 liked · 0 to explore')).toBeVisible()
+  const build = page.getByRole('button', { name: 'Build my week' })
+  await expect(build).toBeEnabled()
+  await build.click()
+  await expect(page.locator('.plannedRecipe')).toHaveCount(2)
+  expect(kitchen.state.plan.reduce((sum, slot) => sum + slot.servings, 0)).toBe(
+    14,
+  )
+  expect(
+    kitchen.state.plan.every(
+      (slot) => kitchen.state.decisions[slot.recipeId] === 'like',
+    ),
+  ).toBe(true)
+})
+
 test('empty recipe library keeps setup compact and recipe entry accessible', async ({
   page,
   kitchen,
@@ -76,7 +108,10 @@ test('recipe plus opens an accessible choice sheet and hides in the editor', asy
   await expect(
     page.getByRole('button', { name: 'Save recipe', exact: true }),
   ).toHaveCount(0)
-  await page.getByRole('button', { name: 'Back to recipes' }).click()
+  await page
+    .getByRole('dialog', { name: 'New recipe' })
+    .getByRole('button', { name: 'Cancel' })
+    .click()
   await expect(add).toBeVisible()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
   await expect(add).toHaveCount(0)
@@ -160,7 +195,7 @@ test('swiping honors skips, undo, keyboard controls and recipe details', async (
   await expect(page.locator('.recipeCard h2')).toHaveText(firstTitle)
   await page.getByRole('button', { name: 'Recipe details' }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
-  await page.getByRole('button', { name: 'Close recipe' }).click()
+  await page.getByRole('button', { name: 'Back to previous screen' }).click()
   const skip = page.getByRole('button', { name: 'Not this week', exact: true })
   await skip.focus()
   await page.keyboard.press('Enter')
@@ -185,12 +220,12 @@ test('existing recipes remain editable with precise unit selections', async ({
   await start(page)
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
   await page
-    .getByRole('button', { name: `Recipe actions for ${original.title}` })
-    .click()
+    .getByRole('button', { name: original.title, exact: true })
+    .press('ArrowLeft')
   await page.getByRole('button', { name: 'Edit', exact: true }).click()
   await page.getByLabel('Recipe name', { exact: true }).fill('Our rice')
   await page.getByLabel('Makes (servings)').fill('4')
-  await page.getByLabel('Max batch servings').fill('8')
+  await expect(page.getByLabel('Max batch servings')).toHaveCount(0)
   await page.getByLabel('Total minutes').fill('25')
   await page.getByLabel('Main protein / variety').fill('Beans')
   await page.getByLabel('Ingredient 1', { exact: true }).fill('rice')
@@ -212,7 +247,10 @@ test('existing recipes remain editable with precise unit selections', async ({
   // An untouched AI composer goes straight back without asking.
   await page.getByRole('button', { name: 'Add recipe' }).click()
   await page.getByRole('button', { name: /Add with AI/ }).click()
-  await page.getByRole('button', { name: 'Back to recipes' }).click()
+  await page
+    .getByRole('dialog', { name: 'New recipe' })
+    .getByRole('button', { name: 'Cancel' })
+    .click()
   await expect(page.getByRole('button', { name: 'Add recipe' })).toBeVisible()
   await page.getByRole('button', { name: 'Our rice', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText('2 cup rice')
@@ -412,7 +450,12 @@ test('importing a link opens Add recipe filled in by AI, never fetching from the
   await expect(
     page.getByLabel('Source reference (optional HTTPS link)'),
   ).toHaveValue('https://www.example.com/great-soup/')
-  await expect(page.getByText('AI-drafted · not kitchen-tested')).toBeVisible()
+  await expect(
+    page.getByText('Not kitchen-tested', { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('img', { name: 'AI-assisted recipe' }),
+  ).toBeVisible()
   await expect(
     page.getByLabel('Instructions (one step per line)'),
   ).not.toHaveValue('')
