@@ -410,3 +410,31 @@ test('production PWA has scoped assets, hash routing and an offline public shell
     false,
   )
 })
+
+test('profile tab explains households in the demo and fits the navigation', async ({
+  page,
+}) => {
+  await start(page)
+  const nav = page.getByRole('navigation', { name: 'Main navigation' })
+  await expect(nav.getByRole('button')).toHaveCount(5)
+  await nav.getByRole('button', { name: 'Profile' }).click()
+  await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Demo kitchen' }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Start a fresh week' }),
+  ).toHaveCount(0)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true)
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+        .analyze()
+    ).violations,
+  ).toEqual([])
+})

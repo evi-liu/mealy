@@ -10,7 +10,6 @@ import {
   CookingPot,
   Heart,
   Home,
-  LogOut,
   Minus,
   PackageOpen,
   Pencil,
@@ -19,6 +18,7 @@ import {
   RotateCcw,
   ShoppingBasket,
   Sparkles,
+  UserRound,
   Users,
   X,
 } from 'lucide-react'
@@ -64,9 +64,18 @@ import { flyToDeck } from './motion/flyToDeck'
 import { demoRecipeAi, liveRecipeAi, type RecipeAi } from './ai/recipeAi'
 import { RecipeArt } from './RecipeArt'
 import { unsaved, useCatalog, type Catalog } from './catalog'
+import { Onboarding, ProfileScreen } from './Profile'
+import { householdApi } from './household'
 import { LovedButton, RecipeDetails, type RemixSave } from './RecipeDetails'
 
-const tabs = ['plan', 'groceries', 'pantry', 'recipes'] as const
+const tabs = ['plan', 'groceries', 'pantry', 'recipes', 'profile'] as const
+const tabLabels: Record<(typeof tabs)[number], string> = {
+  plan: 'Plan',
+  groceries: 'Groceries',
+  pantry: 'Pantry',
+  recipes: 'Recipes',
+  profile: 'Profile',
+}
 type Tab = (typeof tabs)[number]
 function initialTab(): Tab {
   return tabs.find((tab) => `#${tab}` === window.location.hash) ?? 'plan'
@@ -1372,6 +1381,10 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
   const clearRemix = useCallback(() => setRemix(null), [])
   const ai = mode === 'live' ? liveRecipeAi : demoRecipeAi
   const catalog = useCatalog(mode === 'live')
+  useEffect(() => {
+    // Keeps name and photo current so household members can find this person.
+    if (mode === 'live') void householdApi.syncProfile().catch(() => {})
+  }, [mode])
   const headingRef = useRef<HTMLDivElement>(null)
   function navigate(tab: Tab) {
     window.location.hash = tab
@@ -1394,28 +1407,24 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
     setDetail({ recipe, servings, slot })
   return (
     <div className="appShell" ref={headingRef}>
-      <div className={`modeBar ${mode}`}>
-        <span>
-          {mode === 'demo'
-            ? 'DEMO · this browser only'
-            : store.connected
-              ? 'Your shared kitchen · sync every 4s'
+      {/* Only shown when it matters: the demo, or a lost connection.
+          Signing out lives in Profile. */}
+      {(mode === 'demo' || !store.connected) && (
+        <div className={`modeBar ${mode}`}>
+          <span>
+            {mode === 'demo'
+              ? 'DEMO · this browser only'
               : 'Connection unavailable · changes need internet'}
-        </span>
-        <Button
-          aria-label={mode === 'demo' ? 'Leave demo' : 'Sign out'}
-          onClick={exit}
-        >
-          <LogOut size={15} />
-        </Button>
-      </div>
+          </span>
+        </div>
+      )}
       {store.error && (
         <div role="alert" className="errorBanner">
           <p>{store.error}</p>
           <Button onClick={store.retry}>Retry connection</Button>
           {mode === 'demo' && (
             <Button
-              onClick={() => {
+              onClick={async () => {
                 if (
                   window.confirm(
                     'Reset this browser’s demo? This does not affect a live household.',
@@ -1429,7 +1438,9 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
           )}
         </div>
       )}
-      {!state ? (
+      {mode === 'live' && store.noHousehold ? (
+        <Onboarding onJoined={store.reload} exit={exit} />
+      ) : !state ? (
         <div className="screen">
           <h1>
             {store.error ? 'Kitchen unavailable' : 'Opening your kitchen...'}
@@ -1473,6 +1484,13 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
               <Groceries state={state} change={store.change} />
             )}
             {tab === 'pantry' && <Pantry state={state} change={store.change} />}
+            {tab === 'profile' && (
+              <ProfileScreen
+                live={mode === 'live'}
+                onHouseholdChanged={store.reload}
+                exit={exit}
+              />
+            )}
             {tab === 'recipes' && (
               <Recipes
                 store={store}
@@ -1484,30 +1502,38 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
                 catalog={catalog}
               />
             )}
-            <div className="weekAction">
-              <Button
-                className="textButton"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      'Start a fresh week? This clears weekly choices, plan and shopping checks, but keeps recipes, pantry and explicit preferences.',
-                    )
-                  ) {
-                    void store
-                      .change(newWeek, { kind: 'new_week' })
-                      .then((saved) => {
-                        if (saved) navigate('plan')
-                      })
-                  }
-                }}
-              >
-                Start a fresh week
-              </Button>
-            </div>
+            {tab !== 'profile' && (
+              <div className="weekAction">
+                <Button
+                  className="textButton"
+                  onClick={async () => {
+                    if (
+                      window.confirm(
+                        'Start a fresh week? This clears weekly choices, plan and shopping checks, but keeps recipes, pantry and explicit preferences.',
+                      )
+                    ) {
+                      void store
+                        .change(newWeek, { kind: 'new_week' })
+                        .then((saved) => {
+                          if (saved) navigate('plan')
+                        })
+                    }
+                  }}
+                >
+                  Start a fresh week
+                </Button>
+              </div>
+            )}
           </fieldset>
           <nav className="bottomNav" aria-label="Main navigation">
             {tabs.map((item, index) => {
-              const Icon = [Home, ShoppingBasket, PackageOpen, BookOpen][index]
+              const Icon = [
+                Home,
+                ShoppingBasket,
+                PackageOpen,
+                BookOpen,
+                UserRound,
+              ][index]
               return (
                 <Button
                   key={item}
@@ -1516,15 +1542,7 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
                   onClick={() => navigate(item)}
                 >
                   <Icon size={21} />
-                  <span>
-                    {item === 'plan'
-                      ? 'Plan'
-                      : item === 'groceries'
-                        ? 'Groceries'
-                        : item === 'pantry'
-                          ? 'Pantry'
-                          : 'Recipes'}
-                  </span>
+                  <span>{tabLabels[item]}</span>
                 </Button>
               )
             })}

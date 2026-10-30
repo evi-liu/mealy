@@ -912,7 +912,7 @@ label {
   z-index: 5;
   width: min(100%, 460px);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   min-height: 78px;
   padding: 8px 12px max(11px, env(safe-area-inset-bottom));
   border-top: 1px solid #cbc0b1b3;
@@ -1363,4 +1363,118 @@ ul.changeList {
   display: block;
   margin: 4px 0 2px;
   font-size: 16px;
+}
+.profileCard {
+  margin: 0 0 16px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--white);
+}
+.profileCard h2 {
+  margin: 2px 0 6px;
+}
+.profileCard h3 {
+  margin: 18px 0 6px;
+  font-size: 16px;
+}
+.meCard,
+.memberRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.meCard div,
+.memberName {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+.meCard small,
+.memberName small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.memberRow {
+  min-height: 52px;
+  border-bottom: 1px solid var(--line);
+}
+.memberRow.pending {
+  color: var(--muted);
+}
+.avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #e3d6af;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+.meCard .avatar {
+  flex-basis: 52px;
+  width: 52px;
+  height: 52px;
+}
+.householdName,
+.renameForm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.householdName h2 {
+  flex: 1;
+}
+.renameForm input {
+  flex: 1;
+  min-width: 0;
+}
+.requestRow {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.requestRow p {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.searchField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid #b9ad9c;
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--muted);
+}
+.searchField:focus-within {
+  border-color: var(--olive);
+  box-shadow: 0 0 0 3px #56634433;
+}
+.searchField input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 10px 0;
+  box-shadow: none !important;
+}
+.leaveButton {
+  margin-top: 18px;
+  color: var(--tomato);
+}
+.signOut {
+  margin: 8px 0 16px;
+}
+.renameForm > .primaryButton {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
 }
