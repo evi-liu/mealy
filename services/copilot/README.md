@@ -88,8 +88,10 @@ docker build -t mealy-copilot services/copilot
 # Set the server-only environment variables privately on the selected host.
 ```
 
-No hosting provider, billing, credential, or deployment is configured by this
-change. With deployment authorization, start the gateway, verify `/health`,
+The image includes system CA certificates for the native runtime's HTTPS
+connections; Node's bundled certificate store does not replace system trust.
+
+With deployment authorization, start the gateway, verify `/health`,
 configure Supabase Secrets, then deploy **both** functions:
 
 ```sh
@@ -102,6 +104,44 @@ remixing/importing, and ranking using the approved household. Invalid recipes
 must remain unsaved and rankings must still contain exactly the supplied IDs.
 A source import continues to use the existing server-side page fetch safeguards.
 Do not expose the CLI runtime's transport port publicly.
+
+### Azure credit-funded dev/test hosting
+
+Use an explicitly selected credit subscription with its spending limit **On**;
+do not remove the limit or upgrade to pay-as-you-go. Credits are a monthly
+allowance, not intrinsically free hosting. Check the subscription's eligible
+services and dev/test restrictions before using it for a shared application.
+Microsoft's Visual Studio credit terms permit suspension of continuously
+running instances after 120 hours.
+
+The test deployment uses a Container Apps Consumption environment, a private
+Basic Container Registry, and a user-assigned managed identity with `AcrPull`
+scoped only to that registry. Keep registry admin credentials disabled. Build
+from tracked service files only; never upload the local `.env` as build context.
+Store the GitHub token and gateway secret in Container Apps secrets and bind
+them through secret references, not literal environment values or image layers.
+
+Configure HTTPS-only ingress to port 8787, `HOST=0.0.0.0`, 0.5 vCPU / 1 GiB,
+and one minimum/maximum replica. Probe `/health` for startup, readiness and
+liveness. One warm replica avoids idle scale-to-zero startup but consumes
+credits continuously and does not eliminate model-request latency. Registry,
+build and other hosting charges also consume credits. Optional Application
+Insights and Log Analytics are not required.
+
+Use an isolated `AZURE_CONFIG_DIR` and an explicit subscription for CLI
+operations. After deployment, check the actual ready replica and public HTTPS
+endpoint, not just ARM provisioning success. Before generating, verify missing
+gateway authentication returns 401 and the wrong household returns 403.
+Leave Supabase unchanged until readiness and an explicitly approved structured
+generation both succeed.
+
+To pause a test, use **Stop** on the Container App and verify it stopped;
+setting only the minimum replica count to zero still allows requests to wake
+it. The registry continues to incur storage charges. Remove only the dedicated
+test resource group when permanently decommissioning, after explicit approval.
+Rotate an expiring GitHub credential privately in the app's secret controls,
+restart the active revision, and recheck readiness. Rotate the gateway secret
+on both Container Apps and Supabase together. Never paste either into chat.
 
 ## Isolation, limits and retention
 
