@@ -1048,11 +1048,42 @@ label {
   list-style: none;
 }
 .pantryItem {
+  position: relative;
+  overflow: hidden;
+}
+.pantryRowFront {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 11px;
   min-height: 44px;
+  touch-action: pan-y;
+  transition: transform 180ms ease-out;
+}
+.pantryRowFront:focus-visible {
+  outline: 3px solid var(--tomato);
+  outline-offset: -3px;
+}
+.pantryItem[data-revealed='true'] .pantryRowFront,
+.pantryRowFront[data-dragging='true'] {
+  background: var(--paper);
+}
+.pantryRowFront[data-dragging='true'] {
+  transition: none;
+  user-select: none;
+}
+.pantryRowActions {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 56px;
+  display: flex;
+  visibility: hidden;
+}
+.pantryItem[data-revealed='true'] .pantryRowActions,
+.pantryItem:has([data-dragging='true']) .pantryRowActions {
+  visibility: visible;
 }
 .pantryCheck {
   flex-shrink: 0;
@@ -1064,6 +1095,7 @@ label {
   overflow-wrap: anywhere;
 }
 .pantryRemove {
+  width: 100%;
   background: transparent;
   color: var(--muted);
 }

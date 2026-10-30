@@ -1,9 +1,111 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Button } from '@base-ui/react/button'
 import { Dialog } from '@base-ui/react/dialog'
 import { Check, Plus, X } from 'lucide-react'
-import { addPantryItem, removePantryItem, type State } from './domain'
+import {
+  addPantryItem,
+  removePantryItem,
+  type PantryItem,
+  type State,
+} from './domain'
 import type { HouseholdStore } from './store'
+import { useSwipeReveal } from './useSwipeReveal'
+
+function PantryRow({
+  item,
+  revealed,
+  onReveal,
+  onRemove,
+  busy,
+}: {
+  item: PantryItem
+  revealed: boolean
+  onReveal: (open: boolean) => void
+  onRemove: () => Promise<void>
+  busy: boolean
+}) {
+  const actionWidth = 56
+  const id = useId()
+  const front = useRef<HTMLDivElement>(null)
+  const remove = useRef<HTMLButtonElement>(null)
+  const { offset, ...swipe } = useSwipeReveal({
+    actionWidth,
+    revealed,
+    onReveal,
+    disabled: busy,
+  })
+  function showRemove() {
+    if (busy) return
+    onReveal(true)
+    requestAnimationFrame(() => remove.current?.focus())
+  }
+  return (
+    <li
+      className="pantryItem"
+      data-revealed={revealed}
+      onBlur={(event) => {
+        if (!busy && !event.currentTarget.contains(event.relatedTarget))
+          onReveal(false)
+      }}
+      onKeyDown={(event) => {
+        if (
+          event.target === front.current &&
+          (event.key === 'ArrowLeft' || (event.shiftKey && event.key === 'F10'))
+        ) {
+          event.preventDefault()
+          showRemove()
+        } else if (
+          revealed &&
+          (event.key === 'Escape' || event.key === 'ArrowRight')
+        ) {
+          event.preventDefault()
+          onReveal(false)
+          front.current?.focus()
+        }
+      }}
+    >
+      <span className="visuallyHidden" id={`${id}-help`}>
+        Swipe left or press Left Arrow to reveal Remove.
+      </span>
+      <div
+        className="pantryRowFront"
+        ref={front}
+        role="group"
+        tabIndex={busy ? -1 : 0}
+        aria-label={item.name}
+        aria-describedby={`${id}-help`}
+        aria-keyshortcuts="ArrowLeft Shift+F10"
+        data-dragging={offset !== null}
+        style={{
+          transform: `translateX(${offset ?? (revealed ? -actionWidth : 0)}px)`,
+        }}
+        {...swipe}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          showRemove()
+        }}
+        onClick={() => {
+          if (revealed) onReveal(false)
+        }}
+      >
+        <Check className="pantryCheck" size={16} aria-hidden="true" />
+        <strong className="pantryName">{item.name}</strong>
+      </div>
+      <div className="pantryRowActions" aria-hidden={!revealed}>
+        <Button
+          ref={remove}
+          className="iconButton pantryRemove"
+          aria-label={`Remove ${item.name}`}
+          tabIndex={revealed ? 0 : -1}
+          disabled={busy || !revealed}
+          onClick={() => void onRemove()}
+        >
+          <X size={18} aria-hidden="true" />
+        </Button>
+      </div>
+    </li>
+  )
+}
 
 export function Pantry({
   state,
@@ -15,6 +117,7 @@ export function Pantry({
   const [ingredient, setIngredient] = useState('')
   const [attempted, setAttempted] = useState(false)
   const [added, setAdded] = useState('')
+  const [revealedId, setRevealedId] = useState<string | null>(null)
   const [focusRequest, setFocusRequest] = useState<{
     target: HTMLElement | null
   }>()
@@ -56,6 +159,7 @@ export function Pantry({
           }
           setOpen(next)
           if (next) {
+            setRevealedId(null)
             setIngredient('')
             setAttempted(false)
             setAdded('')
@@ -138,32 +242,33 @@ export function Pantry({
           {[...state.pantry]
             .sort((a, b) => a.name.localeCompare(b.name))
             .map((item) => (
-              <li className="pantryItem" key={item.id}>
-                <Check className="pantryCheck" size={16} aria-hidden="true" />
-                <strong className="pantryName">{item.name}</strong>
-                <Button
-                  className="iconButton pantryRemove"
-                  aria-label={`Remove ${item.name}`}
-                  onClick={async () => {
-                    if (
-                      await change(
-                        (current) => removePantryItem(current, item.id),
-                        { kind: 'pantry' },
-                      )
+              <PantryRow
+                key={item.id}
+                item={item}
+                busy={busy}
+                revealed={revealedId === item.id}
+                onReveal={(revealed) =>
+                  setRevealedId((current) =>
+                    revealed ? item.id : current === item.id ? null : current,
+                  )
+                }
+                onRemove={async () => {
+                  if (
+                    await change(
+                      (current) => removePantryItem(current, item.id),
+                      { kind: 'pantry' },
                     )
-                      setFocusRequest({ target: homeHeading.current })
-                  }}
-                >
-                  <X size={18} aria-hidden="true" />
-                </Button>
-              </li>
+                  ) {
+                    setRevealedId(null)
+                    setFocusRequest({ target: homeHeading.current })
+                  }
+                }}
+              />
             ))}
         </ul>
-        <p className="helper">
-          {state.pantry.length
-            ? 'Remove an ingredient when you run out so it returns to your grocery list.'
-            : 'Tap + to add what you have at home.'}
-        </p>
+        {state.pantry.length === 0 && (
+          <p className="helper">Tap + to add what you have at home.</p>
+        )}
       </section>
     </main>
   )

@@ -129,7 +129,7 @@ test('pantry plus opens a single ingredient field and rejects duplicates', async
   await expect(input).toHaveValue('')
   await expect(input).toBeFocused()
   await expect(page.locator('.pantryItem')).toHaveCount(1)
-  await expect(page.locator('.pantryItem')).toHaveText('rice')
+  await expect(page.locator('.pantryItem strong')).toHaveText('rice')
   await expect(page.locator('.pantryItem small')).toHaveCount(0)
   await expect(page.locator('.pantryCheck')).toHaveCount(1)
   await input.fill(' rice ')
@@ -147,6 +147,9 @@ test('pantry plus opens a single ingredient field and rejects duplicates', async
         .analyze()
     ).violations,
   ).toEqual([])
+  await page
+    .getByRole('group', { name: 'rice', exact: true })
+    .press('ArrowLeft')
   await page.getByRole('button', { name: 'Remove rice' }).click()
   await expect(page.locator('.pantryItem')).toHaveCount(0)
 })

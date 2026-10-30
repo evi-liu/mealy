@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures/kitchen'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 
 async function confirmedWeek(page: Page) {
@@ -42,6 +42,7 @@ test('checking off a grocery stocks the pantry and unchecking takes it back', as
     page.locator('.groceryItem').nth(1).getByRole('checkbox'),
   ).toBeChecked()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
+  await page.getByRole('group', { name, exact: true }).press('ArrowLeft')
   await page.getByRole('button', { name: `Remove ${name}` }).click()
   await page.getByRole('button', { name: 'Groceries', exact: true }).click()
   await expect(row.getByRole('checkbox')).not.toBeChecked()
@@ -151,6 +152,9 @@ test('at-home ingredients cross off groceries and running out restores only that
     kitchen.state.pantry.find((item) => item.id === 'existing-oil')?.note,
   ).toBe('legacy note')
   await page
+    .getByRole('group', { name: 'olive oil', exact: true })
+    .press('ArrowLeft')
+  await page
     .getByRole('button', { name: 'Remove olive oil', exact: true })
     .click()
   await expect(
@@ -211,4 +215,135 @@ test('a pending pantry add cannot be duplicated or dismissed mid-save', async ({
   release()
   await expect(sheet.getByRole('status')).toContainText('rice added')
   expect(kitchen.state.pantry.map((item) => item.name)).toEqual(['rice'])
+})
+
+test('pantry removal is hidden until a left swipe and supports keyboard access', async ({
+  page,
+  kitchen,
+}) => {
+  kitchen.state.pantry = ['rice', 'soy sauce'].map((name) => ({
+    id: name,
+    name,
+    kind: 'staple',
+    amount: 1,
+    unit: 'each',
+  }))
+  await page.setViewportSize({ width: 320, height: 600 })
+  await page.goto('./#pantry')
+  await expect(
+    page.getByText(
+      'Remove an ingredient when you run out so it returns to your grocery list.',
+    ),
+  ).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Remove / })).toHaveCount(0)
+  const rows = page.locator('.pantryItem')
+  const first = rows.first()
+  async function swipe(row: Locator, dx: number, dy = 0, cancel = false) {
+    const box = (await row.locator('.pantryRowFront').boundingBox())!
+    const x = box.x + 150
+    const y = box.y + box.height / 2
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x + dx, y + dy, { steps: 10 })
+    if (cancel)
+      await row
+        .locator('.pantryRowFront')
+        .dispatchEvent('pointercancel', { pointerId: 1 })
+    await page.mouse.up()
+  }
+  await first.locator('.pantryRowFront').click()
+  await expect(first).toHaveAttribute('data-revealed', 'false')
+  await swipe(first, -18)
+  await expect(first).toHaveAttribute('data-revealed', 'false')
+  await swipe(first, -70, 0, true)
+  await expect(first).toHaveAttribute('data-revealed', 'false')
+  await swipe(first, -5, 40)
+  await expect(first).toHaveAttribute('data-revealed', 'false')
+  await swipe(first, -70)
+  await expect(first.getByRole('button', { name: 'Remove rice' })).toBeVisible()
+  expect(kitchen.state.pantry).toHaveLength(2)
+  await swipe(first, 70)
+  await expect(first).toHaveAttribute('data-revealed', 'false')
+  await swipe(first, -70)
+  await swipe(rows.nth(1), -70)
+  await expect(first).toHaveAttribute('data-revealed', 'false')
+  await expect(rows.nth(1)).toHaveAttribute('data-revealed', 'true')
+  await rows.nth(1).locator('.pantryRowFront').press('Escape')
+  await expect(rows.nth(1).locator('.pantryRowFront')).toBeFocused()
+  await first.locator('.pantryRowFront').press('ArrowLeft')
+  const remove = first.getByRole('button', { name: 'Remove rice' })
+  await expect(remove).toBeFocused()
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    320,
+  )
+  kitchen.failSave = true
+  await remove.click()
+  await expect(page.getByRole('alert')).toContainText('Test save unavailable')
+  expect(kitchen.state.pantry).toHaveLength(2)
+  kitchen.failSave = false
+  await first.locator('.pantryRowFront').press('ArrowLeft')
+  await remove.click()
+  await expect(rows).toHaveCount(1)
+  await expect(
+    page.getByRole('heading', { name: 'At home', exact: true }),
+  ).toBeFocused()
+})
+
+test('pantry supports native touch swipes without blocking vertical scrolling', async ({
+  page,
+  kitchen,
+  browserName,
+}) => {
+  test.skip(
+    browserName !== 'chromium',
+    'Native touch injection uses Chromium CDP.',
+  )
+  kitchen.state.pantry = Array.from({ length: 20 }, (_, i) => ({
+    id: String(i),
+    name: `ingredient ${i}`,
+    kind: 'staple',
+    amount: 1,
+    unit: 'each',
+  }))
+  await page.setViewportSize({ width: 390, height: 600 })
+  await page.goto('./#pantry')
+  const first = page.locator('.pantryItem').first()
+  const box = (await first.boundingBox())!
+  const cdp = await page.context().newCDPSession(page)
+  const x = box.x + 180
+  const y = box.y + box.height / 2
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x, y }],
+  })
+  for (let step = 1; step <= 6; step++)
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: x - step * 14, y }],
+    })
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  })
+  await expect(first).toHaveAttribute('data-revealed', 'true')
+  await first.locator('.pantryRowFront').press('Escape')
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: 180, y: 440 }],
+  })
+  for (let step = 1; step <= 6; step++)
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: 180, y: 440 - step * 20 }],
+    })
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  })
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY))
+    .toBeGreaterThan(30)
+  expect(kitchen.state.pantry).toHaveLength(20)
+  await cdp.detach()
 })
