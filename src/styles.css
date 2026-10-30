@@ -386,6 +386,10 @@ label {
 .buttonRow > * {
   min-width: 0;
 }
+/* Primary and secondary buttons side by side share the same margins. */
+.buttonRow > .primaryButton {
+  margin-bottom: 12px;
+}
 .buttonRow .primaryButton,
 .buttonRow .secondaryButton {
   flex: 1;
@@ -1469,6 +1473,20 @@ ul.changeList {
 .leaveButton {
   margin-top: 18px;
   color: var(--tomato);
+}
+/* Confirmations can open on top of the recipe card. */
+.confirmBackdrop {
+  z-index: 30;
+}
+.confirmPopup {
+  z-index: 31;
+  width: min(90vw, 380px);
+}
+.confirmPopup .buttonRow {
+  margin-top: 6px;
+}
+.confirmPopup .buttonRow > * {
+  flex: 1;
 }
 .signOut {
   margin: 8px 0 16px;

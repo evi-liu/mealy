@@ -43,8 +43,11 @@ test('checking off a grocery stocks the pantry and unchecking takes it back', as
   ).toBeChecked()
 
   // A fresh week keeps the pantry.
-  page.once('dialog', (prompt) => void prompt.accept())
   await page.getByRole('button', { name: 'Start a fresh week' }).click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Start fresh' })
+    .click()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
   await expect(page.locator('.pantryItem')).toHaveCount(1)
 })

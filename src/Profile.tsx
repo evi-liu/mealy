@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@base-ui/react/button'
 import { Check, LogOut, Plus, Search, UserRound, X } from 'lucide-react'
 import { supabase } from './store'
+import { useConfirm } from './confirm'
 import {
   householdApi,
   type HouseholdOverview,
@@ -229,6 +230,7 @@ function HouseholdCard({ onLeft }: { onLeft: () => void }) {
   const [sent, setSent] = useState<SentRequest[]>([])
   const [error, setError] = useState('')
   const [renaming, setRenaming] = useState(false)
+  const confirm = useConfirm()
   const load = useCallback(() => {
     Promise.all([householdApi.overview(), householdApi.sent()])
       .then(([overview, requests]) => {
@@ -343,9 +345,11 @@ function HouseholdCard({ onLeft }: { onLeft: () => void }) {
         className="textButton leaveButton"
         onClick={async () => {
           if (
-            window.confirm(
-              `Leave ${household.name}? You'll lose access to its week, recipes and pantry until someone adds you back.`,
-            ) &&
+            (await confirm({
+              title: `Leave ${household.name}?`,
+              body: "You'll lose access to its week, recipes and pantry until someone adds you back.",
+              confirm: 'Leave household',
+            })) &&
             (await act(() => householdApi.leave()))
           )
             onLeft()

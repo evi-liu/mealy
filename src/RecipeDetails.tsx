@@ -14,6 +14,7 @@ import {
 } from './domain'
 import type { HouseholdStore } from './store'
 import { RecipeArt } from './RecipeArt'
+import { useConfirm } from './confirm'
 import { useGroceryUnits } from './useGroceryUnits'
 import { flyToDeck } from './motion/flyToDeck'
 import { Body, spring } from './motion/engine'
@@ -160,10 +161,16 @@ export function RecipeDetails({
   const pinned = planned?.recipeId === recipe.id && planned.pinned
   const loved = state.loved.includes(recipe.id)
 
-  function requestClose() {
+  const confirm = useConfirm()
+  async function requestClose() {
     if (
       remixes.length &&
-      !window.confirm('Discard this remix? It has not been saved.')
+      !(await confirm({
+        title: 'Discard this remix?',
+        body: 'It has not been saved.',
+        confirm: 'Discard',
+        cancel: 'Keep editing',
+      }))
     )
       return
     close()
@@ -240,11 +247,14 @@ export function RecipeDetails({
       return
     }
     if (
-      !window.confirm(
-        recipe.source === 'reference'
-          ? 'Replace the original with this remix? It becomes your own recipe: the imported source facts are dropped, and the source link is kept.'
-          : 'Replace the original recipe with this remix?',
-      )
+      !(await confirm({
+        title: 'Replace the original with this remix?',
+        body:
+          recipe.source === 'reference'
+            ? 'It becomes your own recipe: the imported source facts are dropped, and the source link is kept.'
+            : undefined,
+        confirm: 'Replace original',
+      }))
     )
       return
     // Reference facts belong to the imported recipe, not the remix.
@@ -263,7 +273,7 @@ export function RecipeDetails({
     <Dialog.Root
       open
       onOpenChange={(open) => {
-        if (!open) requestClose()
+        if (!open) void requestClose()
       }}
     >
       <Dialog.Portal>

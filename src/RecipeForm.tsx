@@ -11,6 +11,7 @@ import {
   type Bookmark,
 } from './domain'
 import { PromptBar } from './ai/PromptBar'
+import { useConfirm } from './confirm'
 import { flyToDeck } from './motion/flyToDeck'
 import type { DraftBase, RecipeAi, RecipeDraft } from './ai/recipeAi'
 
@@ -76,12 +77,16 @@ export function RecipeForm({
   const [aiError, setAiError] = useState('')
   const [drafting, setDrafting] = useState(false)
   const [touched, setTouched] = useState(false)
-  function leave() {
+  const confirm = useConfirm()
+  async function leave() {
     if (
       (touched || draft) &&
-      !window.confirm(
-        'Leave without saving? Your changes to this recipe will be lost.',
-      )
+      !(await confirm({
+        title: 'Leave without saving?',
+        body: 'Your changes to this recipe will be lost.',
+        confirm: 'Leave',
+        cancel: 'Keep editing',
+      }))
     )
       return
     onCancel()

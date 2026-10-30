@@ -66,6 +66,7 @@ import { RecipeArt } from './RecipeArt'
 import { unsaved, useCatalog, type Catalog } from './catalog'
 import { Onboarding, ProfileScreen } from './Profile'
 import { householdApi } from './household'
+import { useConfirm } from './confirm'
 import { LovedButton, RecipeDetails, type RemixSave } from './RecipeDetails'
 
 const tabs = ['plan', 'groceries', 'pantry', 'recipes', 'profile'] as const
@@ -1381,6 +1382,7 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
   const clearRemix = useCallback(() => setRemix(null), [])
   const ai = mode === 'live' ? liveRecipeAi : demoRecipeAi
   const catalog = useCatalog(mode === 'live')
+  const confirm = useConfirm()
   useEffect(() => {
     // Keeps name and photo current so household members can find this person.
     if (mode === 'live') void householdApi.syncProfile().catch(() => {})
@@ -1426,9 +1428,11 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
             <Button
               onClick={async () => {
                 if (
-                  window.confirm(
-                    'Reset this browser’s demo? This does not affect a live household.',
-                  )
+                  await confirm({
+                    title: 'Reset this browser’s demo?',
+                    body: 'This does not affect a live household.',
+                    confirm: 'Reset demo',
+                  })
                 )
                   store.resetDemo()
               }}
@@ -1508,9 +1512,11 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
                   className="textButton"
                   onClick={async () => {
                     if (
-                      window.confirm(
-                        'Start a fresh week? This clears weekly choices, plan and shopping checks, but keeps recipes, pantry and explicit preferences.',
-                      )
+                      await confirm({
+                        title: 'Start a fresh week?',
+                        body: 'This clears weekly choices, the plan and shopping checks, but keeps recipes, pantry and loved recipes.',
+                        confirm: 'Start fresh',
+                      })
                     ) {
                       void store
                         .change(newWeek, { kind: 'new_week' })

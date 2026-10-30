@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
 import App from './App'
+import { ConfirmProvider } from './confirm'
 import './styles.css'
 
 class ErrorBoundary extends Component<
@@ -30,7 +31,9 @@ class ErrorBoundary extends Component<
 
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
-    <App />
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>
   </ErrorBoundary>,
 )
 const updateSW = registerSW({
