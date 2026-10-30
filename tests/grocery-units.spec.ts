@@ -25,6 +25,12 @@ test('ingredient-first quantities convert without losing checks and persist afte
         border: getComputedStyle(firstRow).borderBottomWidth,
         paddingTop: getComputedStyle(screen).paddingTop,
         overflow: document.documentElement.scrollWidth > window.innerWidth,
+        toggleHeight: screen
+          .querySelector('.unitToggle')!
+          .getBoundingClientRect().height,
+        toggleWidth: screen
+          .querySelector('.unitToggle')!
+          .getBoundingClientRect().width,
         buttons: Array.from(screen.querySelectorAll('.unitToggle button')).map(
           (button) => button.getBoundingClientRect().height,
         ),
@@ -36,7 +42,9 @@ test('ingredient-first quantities convert without losing checks and persist afte
     expect(layout.border).toBe('0px')
     expect(layout.paddingTop).toBe('12px')
     expect(layout.overflow).toBe(false)
-    expect(layout.buttons.every((height) => height >= 44)).toBe(true)
+    expect(layout.buttons.every((height) => height >= 32)).toBe(true)
+    expect(layout.toggleHeight).toBeLessThanOrEqual(38)
+    expect(layout.toggleWidth).toBeLessThanOrEqual(160)
   }
   await expect(
     page

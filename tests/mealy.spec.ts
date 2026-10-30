@@ -89,6 +89,8 @@ test('recipe plus opens an accessible choice sheet and hides in the editor', asy
   await add.click()
   const sheet = page.getByRole('dialog', { name: 'Add a recipe' })
   await expect(sheet).toBeVisible()
+  await expect(sheet.locator('.dialogClose')).toHaveCount(0)
+  await expect(sheet.locator('.recipeAddOption > svg')).toHaveCount(0)
   await expect(sheet.getByRole('button', { name: /Add with AI/ })).toBeVisible()
   await expect(
     sheet.getByRole('button', { name: /Link a website/ }),
@@ -98,6 +100,10 @@ test('recipe plus opens an accessible choice sheet and hides in the editor', asy
       .violations,
   ).toEqual([])
   await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(add).toBeFocused()
+  await add.click()
+  await page.locator('.dialogBackdrop').click({ position: { x: 5, y: 5 } })
   await expect(sheet).toHaveCount(0)
   await expect(add).toBeFocused()
   await add.click()

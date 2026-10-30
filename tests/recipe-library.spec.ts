@@ -461,9 +461,11 @@ test('a pending link import cannot be dismissed into a late unexpected editor', 
   await sheet.getByLabel('Recipe link').fill('https://example.com/recipe')
   await sheet.getByRole('button', { name: 'Import', exact: true }).click()
   await expect(
-    sheet.getByRole('button', { name: 'Close add recipe' }),
+    sheet.getByRole('button', { name: 'Back to add options' }),
   ).toBeDisabled()
   await page.keyboard.press('Escape')
+  await expect(sheet).toBeVisible()
+  await page.locator('.dialogBackdrop').click({ position: { x: 5, y: 5 } })
   await expect(sheet).toBeVisible()
   release()
   await expect(sheet).toHaveCount(0)

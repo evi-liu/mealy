@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@base-ui/react/button'
 import { Dialog } from '@base-ui/react/dialog'
-import { ArrowLeft, ChevronRight, Link, Plus, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, Link, Plus, Sparkles } from 'lucide-react'
 import { Bookmarks } from './Bookmarks'
 
 export function AddRecipeSheet({
@@ -154,13 +154,6 @@ export function AddRecipeSheet({
                   ? 'Start with an idea or a recipe you found.'
                   : 'AI reads the recipe. You review it before saving.'}
               </Dialog.Description>
-              <Dialog.Close
-                className="dialogClose"
-                aria-label="Close add recipe"
-                disabled={pending}
-              >
-                <X size={20} />
-              </Dialog.Close>
               {mode === 'choose' ? (
                 <div className="recipeAddOptions">
                   <Button
@@ -174,7 +167,6 @@ export function AddRecipeSheet({
                       <strong>Add with AI</strong>
                       <small>Describe a dish. Make it your own.</small>
                     </span>
-                    <ChevronRight size={18} aria-hidden="true" />
                   </Button>
                   <Button
                     className="recipeAddOption"
@@ -187,7 +179,6 @@ export function AddRecipeSheet({
                       <strong>Link a website</strong>
                       <small>Turn a recipe page into a kitchen favorite.</small>
                     </span>
-                    <ChevronRight size={18} aria-hidden="true" />
                   </Button>
                 </div>
               ) : (
