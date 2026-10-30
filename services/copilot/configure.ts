@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import { createInterface } from 'node:readline/promises'
 import { createConnection } from './connection.js'
+import { IdentityError, verifyIdentity } from './auth.js'
 
 class SetupError extends Error {}
 
@@ -22,20 +23,19 @@ async function configure() {
       'Checking account identity and model availability; no generation request...',
     )
     await client.start()
-    const auth = await client.getAuthStatus()
-    if (
-      !auth.isAuthenticated ||
-      auth.login?.toLowerCase() !== expectedLogin.toLowerCase()
-    )
+    const login = await verifyIdentity(token, expectedLogin, client)
+    try {
+      models = (await client.listModels()).map((model) => model.id).sort()
+    } catch {
       throw new SetupError(
-        'Authentication failed or the token belongs to a different GitHub username. Nothing was saved.',
+        'Identity verified, but Copilot model lookup failed. Check Copilot Requests permission, entitlement, and organization policy. Nothing was saved.',
       )
-    models = (await client.listModels()).map((model) => model.id).sort()
+    }
     if (!models.length)
       throw new SetupError(
         'No Copilot models are available to this account. Nothing was saved.',
       )
-    console.log(`Verified GitHub identity: ${auth.login}`)
+    console.log(`Verified GitHub identity: ${login}`)
   } finally {
     await dispose()
   }
@@ -83,9 +83,11 @@ async function configure() {
 
 void configure().catch((error) => {
   console.error(
-    error instanceof SetupError
-      ? error.message
-      : 'Setup failed. Check Copilot Requests permission, account policy, runtime availability, and whether .env already exists. Raw errors are hidden to protect credentials.',
+    error instanceof IdentityError
+      ? `${error.message} Nothing was saved.`
+      : error instanceof SetupError
+        ? error.message
+        : 'Setup failed. Check Copilot Requests permission, account policy, runtime availability, and whether .env already exists. Raw errors are hidden to protect credentials.',
   )
   process.exitCode = 1
 })

@@ -42,6 +42,10 @@ generating anything. It accepts a fine-grained personal token with the
 **Copilot Requests** account permission, refuses a mismatched username, and
 creates an ignored `.env` with owner-only permissions without overwriting an
 existing file. The household ID remains blank until explicitly configured.
+Identity is verified against GitHub's authenticated `/user` endpoint using the
+explicit token; the SDK may omit its optional username field. Setup separately
+reports token rejection, username mismatch, Copilot authentication failure, and
+model lookup failure without printing credentials or raw provider responses.
 For managed hosting, use the platform's secret controls and `.env.example`
 as the list of required variable names instead.
 

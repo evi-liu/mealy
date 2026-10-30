@@ -1,6 +1,7 @@
 import { createConnection } from './connection.js'
 import { createGateway } from './server.js'
 import { createGenerator } from './runtime.js'
+import { IdentityError, verifyIdentity } from './auth.js'
 
 class ConfigurationError extends Error {}
 
@@ -33,14 +34,7 @@ async function main() {
   }
   try {
     await client.start()
-    const auth = await client.getAuthStatus()
-    if (
-      !auth.isAuthenticated ||
-      auth.login?.toLowerCase() !== login.toLowerCase()
-    )
-      throw new ConfigurationError(
-        'Copilot identity does not match COPILOT_EXPECTED_LOGIN.',
-      )
+    await verifyIdentity(token, login, client)
     if (
       !(await client.listModels()).some((available) => available.id === model)
     )
@@ -72,7 +66,7 @@ async function main() {
 
 void main().catch((error) => {
   console.error(
-    error instanceof ConfigurationError
+    error instanceof ConfigurationError || error instanceof IdentityError
       ? error.message
       : 'Copilot service could not start. Check gateway configuration, account access, usage limits, and installed runtime.',
   )
