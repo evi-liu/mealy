@@ -36,6 +36,8 @@ export type DraftRequest = {
   history: string[]
   /** Remix: the saved recipe. Live mode sends only its id. */
   original?: Recipe
+  /** Import: a recipe page the server fetches and reads. */
+  url?: string
 }
 /** A model comment; `target` names an ingredient, "step N" or a field. */
 export type DraftNote = { target: string | null; text: string }
@@ -155,6 +157,16 @@ export const demoRecipeAi: RecipeAi = {
         reject(new DOMException('Aborted', 'AbortError'))
       })
     })
+    if (request.url)
+      return {
+        recipe: demoRecipe,
+        notes: [
+          {
+            target: null,
+            text: "Demo mode: this is a canned example; the link wasn't read.",
+          },
+        ],
+      }
     if (request.original && !request.base) return demoRemix(request.original)
     if (!request.base)
       return {

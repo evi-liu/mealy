@@ -78,7 +78,93 @@ const requestSchema = z.object({
   history: z.array(z.string().max(500)).max(10).default([]),
   // Remix: the saved recipe is loaded server-side, never trusted from the client.
   recipeId: z.string().min(1).max(200).optional(),
+  // Import: a public recipe page for the model to read.
+  url: z.string().url().max(2048).optional(),
 })
+
+const PAGE_USER_AGENT =
+  'MealyHouseholdPlanner/1.0 (imports a recipe a household member pasted; +https://evi-liu.github.io/mealy/)'
+
+function publicPageUrl(value: string): URL {
+  const url = new URL(value)
+  const host = url.hostname.toLowerCase()
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.port ||
+    !host.includes('.') ||
+    /^[\d.]+$/.test(host) ||
+    host.includes(':') ||
+    /(^|\.)(localhost|local|internal|home|lan|supabase\.co)$/.test(host)
+  )
+    throw new Error('Use a public https:// recipe page.')
+  return url
+}
+
+/** Fetches a public page with redirect, size and time limits. */
+async function fetchPage(
+  value: string,
+): Promise<{ url: string; html: string }> {
+  let url = publicPageUrl(value)
+  for (let redirects = 0; redirects <= 3; redirects++) {
+    const response = await fetch(url, {
+      redirect: 'manual',
+      headers: { 'User-Agent': PAGE_USER_AGENT, Accept: 'text/html' },
+      signal: AbortSignal.timeout(15000),
+    })
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get('location')
+      if (!location) throw new Error('The page redirected nowhere.')
+      url = publicPageUrl(new URL(location, url).href)
+      continue
+    }
+    if (!response.ok) throw new Error(`That page returned ${response.status}.`)
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('That page was empty.')
+    const decoder = new TextDecoder()
+    let html = ''
+    while (true) {
+      const { done, value: chunk } = await reader.read()
+      if (done) break
+      html += decoder.decode(chunk, { stream: true })
+      if (html.length > 3_000_000) {
+        await reader.cancel()
+        break
+      }
+    }
+    return { url: url.href, html }
+  }
+  throw new Error('That page redirected too many times.')
+}
+
+/** Structured recipe data if the page has it, plus its readable text. */
+function pageContent(html: string) {
+  const structured: unknown[] = []
+  for (const match of html.matchAll(
+    /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  )) {
+    try {
+      structured.push(JSON.parse(match[1]))
+    } catch {
+      // Malformed structured data; the page text still helps.
+    }
+  }
+  const text = html
+    .replace(
+      /<(script|style|noscript|svg|nav|footer|header)\b[\s\S]*?<\/\1>/gi,
+      ' ',
+    )
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40000)
+  return {
+    structured: JSON.stringify(structured).slice(0, 60000),
+    text,
+  }
+}
 
 const string = { type: 'string' }
 const integer = { type: 'integer' }
@@ -156,6 +242,7 @@ Rules:
 - Give clear, safe steps (e.g. cook poultry to 74°C / 165°F). Do not claim the recipe was tested.
 - notes: up to 4 short notes on what you chose or changed, mentioning anything the household should double-check. Use a null target unless remixing.
 - If the request is not a food recipe, is unsafe, or would turn the dish into something unrelated to the base, set "declined" to a short, friendly reason and return the base unchanged (or a minimal valid recipe when there is no base). Otherwise "declined" is null.
+Import: when the input has "page", the household pasted a link to a recipe page. Extract that recipe faithfully: its own title, yield, total time, ingredients with the page's amounts, and its directions in order (keep the page's steps). Use "page.structured" (schema.org Recipe data) first and "page.text" to resolve anything unclear, such as amounts given only in the steps or notes, or a range (use the amount the page's steps call for, else the larger end). Convert units only when exact; never convert between weight and volume; use "each" for counted items. Leave out unquantified "to taste" or garnish items and mention them in notes. If there is a base, keep the household's edits and fill in only what is missing or unresolved. If the page has no recipe, set "declined".
 Remix: when the input has "original" (the household's saved recipe), you are remixing it. Without a base, start from the original. Make the requested changes and keep the dish recognizably itself; do not make unrequested changes beyond what the request needs (e.g. adjusting cooking time for a swapped protein). "original.sourceLines" are the source's ingredient lines and "original.unresolved" lists ingredients whose amounts the household has not confirmed yet; use them as context and choose sensible amounts. If the original has no steps, write concise steps in your own words; never reproduce a publisher's wording. In remix mode give up to 10 notes, one per meaningful change, each with a target: the affected ingredient name exactly as written in your recipe (or the original name for a removed ingredient), "step N" (1-based, in your recipe), or a field name (title, description, servings, maxServings, minutes, protein, leftovers, potluck). Use a null target for a general note.`
 
 /** Explains OpenAI failures in terms the household can act on. */
@@ -292,7 +379,21 @@ Deno.serve(async (req: Request) => {
           : {}),
       }
     }
-    const { recipeId: _recipeId, ...input } = request
+    let page: { url: string; structured: string; text: string } | undefined
+    if (request.url) {
+      try {
+        const fetched = await fetchPage(request.url)
+        page = { url: fetched.url, ...pageContent(fetched.html) }
+      } catch (error) {
+        return respond(400, {
+          error:
+            error instanceof Error && error.message.endsWith('.')
+              ? `Couldn't read that page. ${error.message}`
+              : "Couldn't read that page. Check the link and try again.",
+        })
+      }
+    }
+    const { recipeId: _recipeId, url: _url, ...input } = request
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -305,7 +406,11 @@ Deno.serve(async (req: Request) => {
         store: false,
         max_output_tokens: 6000,
         instructions,
-        input: JSON.stringify(original ? { ...input, original } : input),
+        input: JSON.stringify({
+          ...input,
+          ...(original ? { original } : {}),
+          ...(page ? { page } : {}),
+        }),
         text: {
           format: {
             type: 'json_schema',

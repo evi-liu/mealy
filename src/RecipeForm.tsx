@@ -15,8 +15,9 @@ import { useConfirm } from './confirm'
 import { flyToDeck } from './motion/flyToDeck'
 import type { DraftBase, RecipeAi, RecipeDraft } from './ai/recipeAi'
 
-type EditableIngredient = Omit<Ingredient, 'unit'> & {
+type EditableIngredient = Omit<Ingredient, 'unit' | 'category'> & {
   unit: Ingredient['unit'] | ''
+  category: Ingredient['category'] | ''
   review?: { sourceText: string; reason: string }
 }
 
@@ -30,6 +31,7 @@ export function RecipeForm({
   heading,
   notice,
   celebrate = false,
+  imported,
 }: {
   recipe?: Recipe
   onSave: (recipe: Recipe, image?: File) => Promise<boolean>
@@ -42,6 +44,8 @@ export function RecipeForm({
   notice?: string
   /** Throw a card into the Recipes tab once a new recipe is saved. */
   celebrate?: boolean
+  /** A recipe AI read from a web page, to check before saving. */
+  imported?: { recipe: RecipeDraft; notes: string[]; sourceUrl: string }
 }) {
   const reference = recipe?.source === 'reference'
   const [ingredients, setIngredients] = useState<EditableIngredient[]>(
@@ -58,22 +62,24 @@ export function RecipeForm({
             }),
           ),
         ]
-      : [
-          {
-            name: '',
-            amount: bookmark ? NaN : 1,
-            unit: 'g',
-            category: 'Produce',
-          },
-        ],
+      : imported
+        ? imported.recipe.ingredients
+        : // A blank start: the household or AI fills in every value.
+          [{ name: '', amount: NaN, unit: '', category: '' }],
   )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
-  const [draft, setDraft] = useState<RecipeDraft>()
-  const [draftCount, setDraftCount] = useState(0)
-  const [aiDraft, setAiDraft] = useState(recipe?.aiDraft)
-  const [notes, setNotes] = useState<string[]>([])
+  const [draft, setDraft] = useState<RecipeDraft | undefined>(imported?.recipe)
+  const [draftCount, setDraftCount] = useState(imported ? 1 : 0)
+  const [aiDraft, setAiDraft] = useState(
+    recipe?.aiDraft ??
+      (imported && {
+        createdAt: new Date().toISOString(),
+        prompts: [`Imported from ${imported.sourceUrl}`],
+      }),
+  )
+  const [notes, setNotes] = useState<string[]>(imported?.notes ?? [])
   const [aiError, setAiError] = useState('')
   const [drafting, setDrafting] = useState(false)
   const [touched, setTouched] = useState(false)
@@ -120,16 +126,17 @@ export function RecipeForm({
         .filter(Boolean),
     }
   }
-  async function requestDraft(instruction: string) {
+  async function requestDraft(instruction: string, url?: string) {
     if (!ai) return false
     // Read the form before disabling it: disabled fields are not submitted.
-    const base = aiDraft ? currentBase() : undefined
+    const base = aiDraft || url ? currentBase() : undefined
     setDrafting(true)
     setAiError('')
     try {
       const result = await ai.draft({
         instruction,
         base,
+        url,
         history: aiDraft?.prompts.slice(-10) ?? [],
       })
       if ('declined' in result) {
@@ -262,7 +269,33 @@ export function RecipeForm({
         </p>
       )}
       {notice && <p className="notice">{notice}</p>}
-      {ai && !aiDraft && (
+      {ai && recipe?.sourceUrl && (
+        <section className="aiPrompt" aria-labelledby="ai-fill-heading">
+          <h3 id="ai-fill-heading">
+            <Sparkles size={17} /> Fill in with AI
+          </h3>
+          <p className="helper">
+            AI rereads {sourceName(recipe.sourceUrl)} and fills in unclear
+            amounts and the directions, keeping what you've already entered.
+            Check everything before saving.
+          </p>
+          <Button
+            className="secondaryButton"
+            disabled={drafting}
+            focusableWhenDisabled
+            onClick={() =>
+              void requestDraft(
+                'Fill in this recipe from its source page: resolve unclear or missing amounts and add the directions.',
+                recipe.sourceUrl,
+              )
+            }
+          >
+            <Sparkles size={16} />
+            {drafting ? 'Reading the page...' : 'Fill in from the page'}
+          </Button>
+        </section>
+      )}
+      {ai && !aiDraft && !recipe && (
         <section className="aiPrompt" aria-labelledby="ai-prompt-heading">
           <h3 id="ai-prompt-heading">
             <Sparkles size={17} /> Draft it with AI
@@ -335,7 +368,9 @@ export function RecipeForm({
             maxLength={2048}
             required={reference}
             readOnly={reference}
-            defaultValue={recipe?.sourceUrl ?? bookmark?.url}
+            defaultValue={
+              recipe?.sourceUrl ?? bookmark?.url ?? imported?.sourceUrl
+            }
           />
         </label>
         <label>
@@ -355,7 +390,7 @@ export function RecipeForm({
               min={1}
               max={30}
               required
-              defaultValue={values?.servings ?? (bookmark ? undefined : 4)}
+              defaultValue={values?.servings}
             />
           </label>
           <label>
@@ -366,7 +401,7 @@ export function RecipeForm({
               min={2}
               max={60}
               required
-              defaultValue={values?.maxServings ?? (bookmark ? undefined : 12)}
+              defaultValue={values?.maxServings}
             />
           </label>
           <label>
@@ -377,7 +412,7 @@ export function RecipeForm({
               min={1}
               max={1440}
               required
-              defaultValue={values?.minutes ?? (bookmark ? undefined : 30)}
+              defaultValue={values?.minutes}
             />
           </label>
           <label>
@@ -407,7 +442,7 @@ export function RecipeForm({
           <input
             name="leftovers"
             type="checkbox"
-            defaultChecked={values?.leftovers ?? !bookmark}
+            defaultChecked={values?.leftovers ?? false}
           />{' '}
           Good for leftover lunches
         </label>
@@ -490,6 +525,7 @@ export function RecipeForm({
                 Category
                 <select
                   value={item.category}
+                  required
                   onChange={(e) =>
                     editIngredient(index, {
                       category:
@@ -497,6 +533,9 @@ export function RecipeForm({
                     })
                   }
                 >
+                  <option value="" disabled>
+                    Choose a category
+                  </option>
                   {categories.map((category) => (
                     <option key={category}>{category}</option>
                   ))}
@@ -521,7 +560,7 @@ export function RecipeForm({
           onClick={() =>
             setIngredients((items) => [
               ...items,
-              { name: '', amount: 1, unit: 'g', category: 'Produce' },
+              { name: '', amount: NaN, unit: '', category: '' },
             ])
           }
         >

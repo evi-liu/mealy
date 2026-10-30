@@ -40,6 +40,7 @@ import {
   targets,
   toggleGroceryCheck,
   toggleLoved,
+  sourceUrlSchema,
   undo,
   weekKey,
   adoptQueued,
@@ -61,7 +62,12 @@ import { Bookmarks } from './Bookmarks'
 import { useGroceryUnits } from './useGroceryUnits'
 import { useFlingCard } from './motion/useFlingCard'
 import { flyToDeck } from './motion/flyToDeck'
-import { demoRecipeAi, liveRecipeAi, type RecipeAi } from './ai/recipeAi'
+import {
+  demoRecipeAi,
+  liveRecipeAi,
+  type RecipeAi,
+  type RecipeDraft,
+} from './ai/recipeAi'
 import { RecipeArt } from './RecipeArt'
 import { unsaved, useCatalog, type Catalog } from './catalog'
 import { Onboarding, ProfileScreen } from './Profile'
@@ -1165,6 +1171,33 @@ function Recipes({
   // phone edited it meanwhile.
   const [baseline, setBaseline] = useState<Recipe | null>(null)
   const [reviewingRemix, setReviewingRemix] = useState(false)
+  const [imported, setImported] = useState<{
+    recipe: RecipeDraft
+    notes: string[]
+    sourceUrl: string
+  }>()
+  async function importLink(url: string): Promise<string | void> {
+    const link = sourceUrlSchema.safeParse(url)
+    if (!link.success) return 'Paste a full https:// link to a recipe page.'
+    try {
+      const result = await ai.draft({
+        instruction: 'Import the recipe from this page.',
+        url: link.data,
+        history: [],
+      })
+      if ('declined' in result) return result.declined
+      setFromBookmark(undefined)
+      setBaseline(null)
+      setImported({
+        recipe: result.recipe,
+        notes: result.notes.map((note) => note.text),
+        sourceUrl: link.data,
+      })
+      setEditing('new')
+    } catch (error) {
+      return message(error)
+    }
+  }
   const [remixSlot, setRemixSlot] = useState<RemixSave['slot']>()
   useEffect(() => {
     if (!remix) return
@@ -1252,13 +1285,14 @@ function Recipes({
         <RecipeForm
           key={
             typeof editing === 'string'
-              ? `${editing}-${fromBookmark?.id ?? ''}`
+              ? `${editing}-${fromBookmark?.id ?? ''}-${imported?.sourceUrl ?? ''}`
               : editing.id
           }
           recipe={editing === 'new' ? undefined : editing}
           bookmark={fromBookmark}
           live={live}
-          ai={editing === 'new' && !fromBookmark ? ai : undefined}
+          ai={fromBookmark ? undefined : ai}
+          imported={editing === 'new' ? imported : undefined}
           heading={reviewingRemix ? 'Review your remix' : undefined}
           celebrate={
             editing === 'new' ||
@@ -1273,6 +1307,7 @@ function Recipes({
           }
           onCancel={() => {
             setRemixSlot(undefined)
+            setImported(undefined)
             setEditing(null)
             setFromBookmark(undefined)
             setBaseline(null)
@@ -1375,9 +1410,12 @@ function Recipes({
           <Bookmarks
             state={state}
             change={store.change}
+            demo={ai.demo}
+            onImport={importLink}
             onManual={(bookmark) => {
               setFromBookmark(bookmark)
               setBaseline(null)
+              setImported(undefined)
               setEditing('new')
             }}
           />

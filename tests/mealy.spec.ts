@@ -32,9 +32,7 @@ test('empty recipe library keeps setup compact and recipe entry accessible', asy
   await expect(
     page.getByRole('button', { name: 'Add your recipe' }),
   ).toBeVisible()
-  await expect(
-    page.getByRole('button', { name: 'Save link bookmark' }),
-  ).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Recipe link' })).toBeVisible()
 })
 test('setup, shortlist, plan, pantry and durable grocery checks', async ({
   page,
@@ -127,13 +125,30 @@ test('adds an actual recipe with precise unit selections', async ({ page }) => {
   await start(page)
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
   await page.getByRole('button', { name: 'Add your recipe' }).click()
+  // The form starts blank: no assumed yield, time, batch or ingredient.
+  for (const label of [
+    'Makes (servings)',
+    'Max batch servings',
+    'Total minutes',
+  ])
+    await expect(page.getByLabel(label)).toHaveValue('')
+  await expect(page.getByLabel('Amount', { exact: true })).toHaveValue('')
+  await expect(
+    page.getByRole('checkbox', { name: 'Good for leftover lunches' }),
+  ).not.toBeChecked()
   await page.getByLabel('Recipe name', { exact: true }).fill('Our rice')
+  await page.getByLabel('Makes (servings)').fill('4')
+  await page.getByLabel('Max batch servings').fill('8')
+  await page.getByLabel('Total minutes').fill('25')
   await page.getByLabel('Main protein / variety').fill('Beans')
   await page.getByLabel('Ingredient 1', { exact: true }).fill('rice')
   await page.getByLabel('Amount', { exact: true }).fill('2')
   await page
     .getByRole('combobox', { name: 'Unit', exact: true })
     .selectOption('cup')
+  await page
+    .getByRole('combobox', { name: 'Category', exact: true })
+    .selectOption('Pantry')
   await page
     .getByLabel('Instructions (one step per line)')
     .fill('Cook the rice using your usual method.')
@@ -321,52 +336,35 @@ test('dragging shows drop targets; throws commit, pauses and cancels return', as
   await expect(stage).toHaveAttribute('data-phase', 'idle')
 })
 
-test('trusted-source links stay bookmarks until reviewed manual details exist', async ({
+test('importing a link opens Add recipe filled in by AI, never fetching from the browser', async ({
   page,
 }) => {
   const requestedSources: string[] = []
   page.on('request', (request) => {
-    if (/thewoksoflife|tiffycooks/.test(request.url()))
+    if (/thewoksoflife|tiffycooks|example\.com/.test(request.url()))
       requestedSources.push(request.url())
   })
   await start(page)
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
-  await expect(
-    page.getByRole('link', { name: 'The Woks of Life', exact: true }),
-  ).toHaveAttribute('href', 'https://thewoksoflife.com/')
-  await expect(
-    page.getByRole('link', { name: 'Tiffy Cooks', exact: true }),
-  ).toHaveAttribute('href', 'https://tiffycooks.com/')
-  await page.getByLabel('Your label').fill('A noodle recipe to try')
-  await page
-    .getByLabel('Recipe link', { exact: true })
-    .fill('https://thewoksoflife.com/example-recipe/')
-  await page.getByRole('button', { name: 'Save link bookmark' }).click()
-  await expect(page.getByRole('status')).toContainText(
-    'No recipe details were imported',
+  const link = page.getByRole('textbox', { name: 'Recipe link' })
+  await link.fill('not a link')
+  await page.getByRole('button', { name: 'Import' }).click()
+  await expect(link).toBeFocused()
+  await link.fill('https://www.example.com/great-soup/')
+  await page.getByRole('button', { name: 'Import' }).click()
+  await expect(page.getByLabel('Recipe name', { exact: true })).toHaveValue(
+    'Garlicky white bean & greens soup',
   )
-  await page
-    .getByRole('button', { name: 'Enter my own recipe details' })
-    .click()
-  await expect(page.getByLabel('Makes (servings)')).toHaveValue('')
-  await expect(page.getByLabel('Amount', { exact: true })).toHaveValue('')
-  await expect(page.getByLabel('Total minutes')).toHaveValue('')
   await expect(
     page.getByLabel('Source reference (optional HTTPS link)'),
-  ).toHaveValue('https://thewoksoflife.com/example-recipe/')
-  expect(requestedSources).toEqual([])
-  // Source-attributed manual entry is the household's own details, not AI.
+  ).toHaveValue('https://www.example.com/great-soup/')
+  await expect(page.getByText('AI-drafted · not kitchen-tested')).toBeVisible()
+  await expect(page.getByText(/the link wasn't read/)).toBeVisible()
   await expect(
-    page.getByRole('textbox', { name: 'Describe a recipe to add' }),
-  ).toHaveCount(0)
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await page.getByRole('button', { name: 'Plan', exact: true }).click()
-  await page.getByRole('button', { name: 'Start choosing recipes' }).click()
-  await like(page, 3)
-  await page.getByRole('button', { name: 'Build my week' }).click()
-  await expect(page.locator('.mealList')).not.toContainText(
-    'A noodle recipe to try',
-  )
+    page.getByLabel('Instructions (one step per line)'),
+  ).not.toHaveValue('')
+  // The server reads pages; the browser never contacts the recipe site.
+  expect(requestedSources).toEqual([])
 })
 
 test('production PWA has scoped assets, hash routing and an offline public shell', async ({

@@ -1,49 +1,92 @@
 import { useState } from 'react'
 import { Button } from '@base-ui/react/button'
-import { ArrowUpRight, Link, X } from 'lucide-react'
-import {
-  makeBookmark,
-  sourceName,
-  trustedSources,
-  type Bookmark,
-  type State,
-} from './domain'
+import { ArrowUpRight, Sparkles, X } from 'lucide-react'
+import { sourceName, type Bookmark, type State } from './domain'
 import type { HouseholdStore } from './store'
 import { addRecipeFacts, availableRecipeFacts } from './recipeFacts'
 
+/**
+ * Paste a recipe link and AI reads the page into a new recipe to check and
+ * save. Links saved before importing existed stay listed until imported.
+ */
 export function Bookmarks({
   state,
   change,
   onManual,
+  onImport,
+  demo,
 }: {
   state: State
   change: HouseholdStore['change']
   onManual: (bookmark: Bookmark) => void
+  /** Resolves to an error message, or nothing once the form is open. */
+  onImport: (url: string) => Promise<string | void>
+  demo: boolean
 }) {
+  const [url, setUrl] = useState('')
   const [error, setError] = useState('')
-  const [saved, setSaved] = useState(false)
+  const [importing, setImporting] = useState<string | null>(null)
   const available = availableRecipeFacts(state)
+  const saved = state.bookmarks.filter(
+    (bookmark) =>
+      !state.recipes.some((recipe) => recipe.sourceUrl === bookmark.url),
+  )
+  async function run(link: string) {
+    setError('')
+    setImporting(link)
+    try {
+      const failure = await onImport(link.trim())
+      if (failure) setError(failure)
+      else if (link === url) setUrl('')
+    } finally {
+      setImporting(null)
+    }
+  }
   return (
-    <section className="bookmarks">
-      <h2>From trusted kitchens</h2>
+    <section className="bookmarks" aria-labelledby="import-heading">
+      <h2 id="import-heading">Import from a link</h2>
       <p className="helper">
-        Your starting sources are The Woks of Life and Tiffy Cooks. Open the
-        original site to explore, then save a recipe link here.
+        Paste a recipe page. AI reads it, ingredients, amounts and directions
+        included, into a new recipe for you to check and save.
+        {demo && ' Demo mode shows a canned example instead.'}
       </p>
-      <div className="buttonRow">
-        {trustedSources.map((source) => (
-          <a
-            className="secondaryButton"
-            key={source.domain}
-            href={source.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {source.name}
-            <ArrowUpRight size={16} />
-          </a>
-        ))}
-      </div>
+      <form
+        className="renameForm importLink"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void run(url)
+        }}
+      >
+        <input
+          type="url"
+          inputMode="url"
+          aria-label="Recipe link"
+          placeholder="https://..."
+          required
+          maxLength={2048}
+          value={url}
+          readOnly={importing !== null}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+        <Button
+          className="primaryButton"
+          type="submit"
+          disabled={importing !== null}
+          focusableWhenDisabled
+        >
+          <Sparkles size={17} /> {importing ? 'Reading...' : 'Import'}
+        </Button>
+      </form>
+      {importing && (
+        <p role="status" className="helper">
+          Reading the page and drafting your recipe...
+        </p>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
       {available.length > 0 && (
         <div className="section">
           <Button
@@ -52,137 +95,54 @@ export function Bookmarks({
           >
             Add recipe facts for {available.length} Tiffy Cooks links
           </Button>
-          <p className="helper">
-            Ingredients, yields and times only, from checked source snapshots.
-            Review the quantities and your batch capacity before planning.
-            Cooking directions stay on Tiffy Cooks.
-          </p>
         </div>
       )}
-      <form
-        className="pantryForm section"
-        onSubmit={async (e) => {
-          e.preventDefault()
-          const form = e.currentTarget
-          const data = new FormData(form)
-          setError('')
-          setSaved(false)
-          try {
-            const bookmark = makeBookmark(
-              String(data.get('title')),
-              String(data.get('url')),
-            )
-            if (
-              await change(
-                (s) => {
-                  if (s.bookmarks.some((item) => item.url === bookmark.url))
-                    throw new Error('That link is already in your bookmarks.')
-                  return { ...s, bookmarks: [...s.bookmarks, bookmark] }
-                },
-                { kind: 'bookmark', recipeId: bookmark.id },
-              )
-            ) {
-              form.reset()
-              setSaved(true)
-            }
-          } catch (error) {
-            setError(error instanceof Error ? error.message : String(error))
-          }
-        }}
-      >
-        <h3>Save a recipe link</h3>
-        <label>
-          Your label
-          <input
-            name="title"
-            required
-            maxLength={200}
-            placeholder="A recipe I'd like to try"
-          />
-        </label>
-        <label>
-          Recipe link
-          <input
-            name="url"
-            type="url"
-            inputMode="url"
-            required
-            maxLength={2048}
-            placeholder="https://..."
-          />
-        </label>
-        <p className="helper">
-          Saves a link only. Checked factual snapshots are available separately
-          for selected Tiffy Cooks recipes. Full instructions and photos are not
-          copied.
-        </p>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-        <Button type="submit" className="secondaryButton">
-          <Link size={17} />
-          Save link bookmark
-        </Button>
-        {saved && (
-          <p role="status" className="helper">
-            Bookmark saved. No recipe details were imported.
-          </p>
-        )}
-      </form>
-      {state.bookmarks
-        .filter(
-          (bookmark) =>
-            !state.recipes.some(
-              (recipe) =>
-                recipe.source === 'reference' &&
-                recipe.sourceUrl === bookmark.url,
-            ),
-        )
-        .map((bookmark) => (
-          <article className="mealRow" key={bookmark.id}>
-            <div className="mealHeading">
-              <span className="eyebrow">
-                LINK ONLY · {sourceName(bookmark.url)}
-              </span>
-              <Button
-                className="iconButton"
-                aria-label={`Remove bookmark ${bookmark.title}`}
-                onClick={() =>
-                  void change(
-                    (s) => ({
-                      ...s,
-                      bookmarks: s.bookmarks.filter(
-                        (item) => item.id !== bookmark.id,
-                      ),
-                    }),
-                    { kind: 'bookmark', recipeId: bookmark.id },
-                  )
-                }
-              >
-                <X size={17} />
-              </Button>
-            </div>
-            <h3>{bookmark.title}</h3>
-            <p>
-              Yield and ingredients not entered. Not yet eligible for a plan or
-              grocery list.
-            </p>
+      {saved.length > 0 && <h3>Saved links</h3>}
+      {saved.map((bookmark) => (
+        <article className="mealRow" key={bookmark.id}>
+          <div className="mealHeading">
+            <span className="eyebrow">{sourceName(bookmark.url)}</span>
+            <Button
+              className="iconButton"
+              aria-label={`Remove bookmark ${bookmark.title}`}
+              onClick={() =>
+                void change(
+                  (s) => ({
+                    ...s,
+                    bookmarks: s.bookmarks.filter(
+                      (item) => item.id !== bookmark.id,
+                    ),
+                  }),
+                  { kind: 'bookmark', recipeId: bookmark.id },
+                )
+              }
+            >
+              <X size={17} />
+            </Button>
+          </div>
+          <h3>{bookmark.title}</h3>
+          <div className="buttonRow">
+            <Button
+              className="secondaryButton"
+              disabled={importing !== null}
+              onClick={() => void run(bookmark.url)}
+            >
+              <Sparkles size={16} /> Import with AI
+            </Button>
             <a
               href={bookmark.url}
               target="_blank"
               rel="noopener noreferrer"
               className="secondaryButton"
             >
-              Read on {sourceName(bookmark.url)}
-              <ArrowUpRight size={16} />
+              Open <ArrowUpRight size={16} />
             </a>
-            <Button className="textButton" onClick={() => onManual(bookmark)}>
-              Enter my own recipe details
-            </Button>
-          </article>
-        ))}
+          </div>
+          <Button className="textButton" onClick={() => onManual(bookmark)}>
+            Enter the details myself
+          </Button>
+        </article>
+      ))}
     </section>
   )
 }
