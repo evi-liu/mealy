@@ -135,7 +135,8 @@ gateway authentication returns 401 and the wrong household returns 403.
 Leave Supabase unchanged until readiness and an explicitly approved structured
 generation both succeed.
 
-To pause a test, use **Stop** on the Container App and verify it stopped;
+To pause a test, deactivate every active Container App revision and verify
+there are no running replicas;
 setting only the minimum replica count to zero still allows requests to wake
 it. The registry continues to incur storage charges. Remove only the dedicated
 test resource group when permanently decommissioning, after explicit approval.
