@@ -1384,17 +1384,7 @@ function Recipes({
               setEditing(recipe)
             }}
           />
-          <Bookmarks
-            state={state}
-            change={store.change}
-            onImport={importLink}
-            onManual={(bookmark) => {
-              setFromBookmark(bookmark)
-              setBaseline(null)
-              setImported(undefined)
-              setEditing('new')
-            }}
-          />
+          <Bookmarks onImport={importLink} />
         </>
       )}
     </main>

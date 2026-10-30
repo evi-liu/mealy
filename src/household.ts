@@ -1,4 +1,5 @@
 import { supabase } from './store'
+import { draftErrorMessage } from './ai/recipeAi'
 
 export type Member = {
   email: string
@@ -126,9 +127,27 @@ export const householdApi = {
     if (error) throw new Error(error.message)
     return (data ?? []).map((row) => row.domain as string)
   },
+  /** Asks the server whether a site's robots.txt lets the importer in. */
+  async checkSource(
+    url: string,
+  ): Promise<{ domain: string; allowed: boolean; reason: string | null }> {
+    const { data, error } = await client().functions.invoke('source-check', {
+      body: { url },
+    })
+    if (error) throw new Error(await draftErrorMessage(error))
+    return data
+  },
   addSource: (url: string) => call<string>('add_source', { p_url: url }),
   removeSource: (domain: string) =>
     call<null>('remove_source', { p_domain: domain }),
+  /** Deactivated households this person owns and can switch back to. */
+  async inactive(): Promise<{ id: string; name: string }[]> {
+    const rows = await call<{ id: string; name: string }[]>(
+      'my_inactive_households',
+    )
+    return rows ?? []
+  },
+  reactivate: (id: string) => call<null>('reactivate_household', { p_id: id }),
   request: (userId: string) =>
     call<string>('request_member', { p_user: userId }),
   withdraw: (id: string) => call<null>('withdraw_request', { p_id: id }),

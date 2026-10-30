@@ -1,15 +1,20 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { refusal, robotsPolicy } from '../_shared/robots.ts'
 
 // Importer for the private recipe catalog. Called hourly by pg_cron. For each
-// site any household follows, it preloads up to PRELOAD recipes in small
+// site any household follows, it preloads up to its preload limit in small
 // batches, then checks the site's sitemap at most weekly for posts newer than
 // its watermark. Stores each recipe's facts and directions, never photographs
 // or narrative text.
 type Source = string
-const PRELOAD = 100
+// The two original sources preload 100 recipes; sites households add, 50.
+const ORIGINAL_SOURCES = ['tiffycooks.com', 'thewoksoflife.com']
+const preloadFor = (source: string) =>
+  ORIGINAL_SOURCES.includes(source) ? 100 : 50
 const BACKFILL = 10
 const BATCH = 15
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+// Just under a week, so each Saturday's first run counts as due.
+const WEEK_MS = 6 * 24 * 60 * 60 * 1000
 const DELAY_MS = 1500
 const USER_AGENT =
   'MealyHouseholdPlanner/1.0 (private two-person meal planner; +https://evi-liu.github.io/mealy/)'
@@ -60,6 +65,15 @@ async function fetchText(url: string, source: Source): Promise<string> {
 }
 
 type Entry = { url: string; lastmod: string | null }
+
+/** The site's robots.txt policy; a missing or unreachable file allows all. */
+async function sitePolicy(source: Source) {
+  try {
+    return robotsPolicy(await fetchText(`https://${source}/robots.txt`, source))
+  } catch {
+    return robotsPolicy('')
+  }
+}
 
 const locs = (xml: string) =>
   [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g)].map((m) => m[1])
@@ -225,14 +239,19 @@ Deno.serve(async (req: Request) => {
       status,
       headers: { 'Content-Type': 'application/json' },
     })
-  const secret = Deno.env.get('CATALOG_CRON_SECRET')
-  if (!secret || !sameSecret(req.headers.get('x-catalog-secret') ?? '', secret))
-    return respond(401, { error: 'Not authorized.' })
   const admin = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     { auth: { persistSession: false } },
   )
+  // The cron sends the secret that setup-catalog-cron.sql generated in Vault.
+  const { data: secret } = await admin.rpc('catalog_cron_secret')
+  if (
+    typeof secret !== 'string' ||
+    !secret ||
+    !sameSecret(req.headers.get('x-catalog-secret') ?? '', secret)
+  )
+    return respond(401, { error: 'Not authorized.' })
   const summary: Record<string, unknown> = {}
   const { data: followed, error: sourcesError } = await admin
     .from('household_sources')
@@ -250,6 +269,7 @@ Deno.serve(async (req: Request) => {
         .select('watermark, checked_at')
         .eq('source', source)
         .maybeSingle()
+      const PRELOAD = preloadFor(source)
       const preloading = (count ?? 0) < PRELOAD
       const due =
         !progress?.checked_at ||
@@ -258,7 +278,16 @@ Deno.serve(async (req: Request) => {
         summary[source] = { skipped: 'checked this week' }
         continue
       }
-      const entries = await sitemapEntries(source)
+      const policy = await sitePolicy(source)
+      const refused = refusal(policy)
+      if (refused) {
+        summary[source] = { skipped: refused }
+        continue
+      }
+      const entries = (await sitemapEntries(source)).filter((entry) => {
+        const url = new URL(entry.url)
+        return policy.allows(url.pathname + url.search)
+      })
       const { data: seenRows } = await admin
         .from('catalog_pages')
         .select('url')

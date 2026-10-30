@@ -73,6 +73,7 @@ export const test = base.extend<{ kitchen: Kitchen }>({
         if (
           [
             '/rest/v1/rpc/my_requests',
+            '/rest/v1/rpc/my_inactive_households',
             '/rest/v1/rpc/household_sent_requests',
           ].includes(url.pathname)
         )
