@@ -759,7 +759,7 @@ function Groceries({
     (i) => i.buy > 0 && !state.checked.includes(i.key),
   ).length
   return (
-    <main className="screen">
+    <main className="screen groceryScreen">
       <Header
         eyebrow={`WEEK OF ${state.week}`}
         title="Groceries"

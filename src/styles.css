@@ -943,19 +943,28 @@ label {
 .pinRecipe.pinned {
   color: var(--olive);
 }
+.groceryScreen {
+  padding-top: 12px;
+}
+.groceryScreen > .screenHeader {
+  margin-bottom: 8px;
+}
+.groceryScreen h1 {
+  margin-bottom: 4px;
+}
 .groceryGroup {
-  margin: 22px 0;
+  margin: 12px 0;
 }
 .groceryUnits {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 0 0 22px;
+  margin: 0 0 12px;
 }
 .unitToggle {
   display: flex;
-  padding: 4px;
+  padding: 2px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: #eee6d9;
@@ -995,14 +1004,14 @@ label {
 }
 .groceryGroup h2 {
   font-size: 22px;
+  margin: 0 0 4px;
 }
 .groceryItem {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 62px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
+  min-height: 44px;
+  padding: 6px 0;
 }
 .groceryItem span {
   min-width: 0;

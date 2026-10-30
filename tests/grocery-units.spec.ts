@@ -14,6 +14,30 @@ test('ingredient-first quantities convert without losing checks and persist afte
     .getByRole('button', { name: 'Confirm & make grocery list' })
     .click()
   const row = page.locator('.groceryItem').first()
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    const layout = await page.locator('.groceryScreen').evaluate((screen) => {
+      const firstRow = screen.querySelector('.groceryItem')!
+      const bounds = firstRow.getBoundingClientRect()
+      return {
+        rowTop: bounds.top,
+        rowHeight: bounds.height,
+        border: getComputedStyle(firstRow).borderBottomWidth,
+        paddingTop: getComputedStyle(screen).paddingTop,
+        overflow: document.documentElement.scrollWidth > window.innerWidth,
+        buttons: Array.from(screen.querySelectorAll('.unitToggle button')).map(
+          (button) => button.getBoundingClientRect().height,
+        ),
+      }
+    })
+    expect(layout.rowTop).toBeLessThan(180)
+    expect(layout.rowHeight).toBeGreaterThanOrEqual(44)
+    expect(layout.rowHeight).toBeLessThanOrEqual(48)
+    expect(layout.border).toBe('0px')
+    expect(layout.paddingTop).toBe('12px')
+    expect(layout.overflow).toBe(false)
+    expect(layout.buttons.every((height) => height >= 44)).toBe(true)
+  }
   await expect(
     page
       .getByRole('group', { name: 'Grocery unit system' })
