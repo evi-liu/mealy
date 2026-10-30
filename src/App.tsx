@@ -55,6 +55,7 @@ import { RecipeForm } from './RecipeForm'
 import { Bookmarks } from './Bookmarks'
 import { useGroceryUnits } from './useGroceryUnits'
 import { useFlingCard } from './motion/useFlingCard'
+import { demoRecipeAi, liveRecipeAi, type RecipeAi } from './ai/recipeAi'
 
 const tabs = ['plan', 'groceries', 'pantry', 'recipes'] as const
 type Tab = (typeof tabs)[number]
@@ -368,9 +369,11 @@ function RecipeDetails({
           <Dialog.Description>
             {recipe.source === 'demo'
               ? 'Illustrative demo, not a tested cooking recipe.'
-              : recipe.source === 'reference'
-                ? 'Source-linked recipe facts. Cooking directions remain on the original website.'
-                : 'Your household recipe.'}
+              : recipe.aiDraft
+                ? 'Your household recipe, drafted with AI and reviewed by you. Not kitchen-tested.'
+                : recipe.source === 'reference'
+                  ? 'Source-linked recipe facts. Cooking directions remain on the original website.'
+                  : 'Your household recipe.'}
           </Dialog.Description>
           <Dialog.Close className="dialogClose" aria-label="Close recipe">
             <X size={20} />
@@ -1140,10 +1143,12 @@ function Pantry({
 function Recipes({
   store,
   live,
+  ai,
   details,
 }: {
   store: HouseholdStore
   live: boolean
+  ai: RecipeAi
   details: (recipe: Recipe) => void
 }) {
   const state = store.state!
@@ -1226,6 +1231,7 @@ function Recipes({
           recipe={editing === 'new' ? undefined : editing}
           bookmark={fromBookmark}
           live={live}
+          ai={editing === 'new' && !fromBookmark ? ai : undefined}
           onCancel={() => {
             setEditing(null)
             setFromBookmark(undefined)
@@ -1248,9 +1254,11 @@ function Recipes({
               <span className="eyebrow">
                 {recipe.source === 'demo'
                   ? 'DEMO'
-                  : recipe.source === 'reference' && recipe.sourceUrl
-                    ? sourceName(recipe.sourceUrl)
-                    : 'YOUR RECIPE'}
+                  : recipe.aiDraft
+                    ? 'AI-DRAFTED'
+                    : recipe.source === 'reference' && recipe.sourceUrl
+                      ? sourceName(recipe.sourceUrl)
+                      : 'YOUR RECIPE'}
               </span>
               <Button className="recipeTitle" onClick={() => details(recipe)}>
                 {recipe.title}
@@ -1437,7 +1445,12 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
             )}
             {tab === 'pantry' && <Pantry state={state} change={store.change} />}
             {tab === 'recipes' && (
-              <Recipes store={store} live={mode === 'live'} details={details} />
+              <Recipes
+                store={store}
+                live={mode === 'live'}
+                ai={mode === 'live' ? liveRecipeAi : demoRecipeAi}
+                details={details}
+              />
             )}
             <div className="weekAction">
               <Button

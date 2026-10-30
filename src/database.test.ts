@@ -56,6 +56,15 @@ beforeAll(async () => {
       'utf8',
     ),
   )
+  await db.exec(
+    await readFile(
+      new URL(
+        '../supabase/migrations/202610300001_ai_recipe_drafts.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  )
   for (const id of [householdA, householdB])
     await db.query(
       'insert into public.household_state(household_id,data) values ($1,$2)',
@@ -222,6 +231,27 @@ describe('actual migration on embedded PostgreSQL', () => {
         ).toBe(i < 20)
       }
     })
+  })
+  it('gives recipe drafting its own hourly budget', async () => {
+    await asUser(bob, async () => {
+      for (let i = 0; i < 61; i++) {
+        expect(
+          (
+            await db.query<{ allowed: boolean }>(
+              'select public.claim_ai_draft_call() as allowed',
+            )
+          ).rows[0].allowed,
+        ).toBe(i < 60)
+      }
+      await expect(
+        db.query('select * from public.ai_draft_rate_limits'),
+      ).rejects.toThrow('permission denied')
+    })
+    await asUser(outsider, async () =>
+      expect(db.query('select public.claim_ai_draft_call()')).rejects.toThrow(
+        'Household access denied',
+      ),
+    )
   })
   it('revokes access immediately when an allowlist entry is removed', async () => {
     await db.exec(

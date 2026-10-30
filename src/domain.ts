@@ -93,6 +93,12 @@ export const recipeSchema = z
     sourceUrl: sourceUrlSchema.optional(),
     facts: recipeFactsSchema.optional(),
     imagePath: z.string().max(500).optional(),
+    aiDraft: z
+      .object({
+        createdAt: z.iso.datetime(),
+        prompts: z.array(z.string().max(500)).max(20),
+      })
+      .optional(),
     ingredients: z.array(ingredientSchema).min(1).max(60),
     instructions: z.array(z.string().trim().min(1).max(2000)).max(40),
   })

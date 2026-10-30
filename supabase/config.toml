@@ -13,3 +13,6 @@ redirect_uri = ""
 
 [functions.rank-recipes]
 verify_jwt = false
+
+[functions.recipe-draft]
+verify_jwt = false

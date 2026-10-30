@@ -1128,3 +1128,85 @@ h1[tabindex='-1']:focus {
     animation: none !important;
   }
 }
+.aiPrompt {
+  margin: 16px 0 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--white);
+}
+.aiPrompt h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 6px;
+  color: var(--olive);
+}
+.promptBar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.promptBar textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  resize: none;
+  /* 16px keeps iOS Safari from zooming in on focus. */
+  font-size: 16px;
+  line-height: 1.35;
+}
+.promptBar.sticky textarea {
+  padding: 10px 12px;
+  white-space: pre-wrap;
+}
+.promptBar .promptSend {
+  min-height: 44px;
+  background: var(--olive);
+  color: var(--white);
+}
+.promptBar .promptSend[data-disabled] {
+  background: var(--line);
+  color: var(--muted);
+}
+.promptBar.sticky {
+  position: sticky;
+  z-index: 4;
+  bottom: calc(86px + env(safe-area-inset-bottom));
+  margin: 12px -6px 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #faf6eff5;
+  box-shadow: 0 8px 24px #30291f1f;
+}
+.aiNotice strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--olive);
+}
+.aiNotice ul {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.aiNotice p {
+  margin: 0;
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    rotate: 360deg;
+  }
+}
+.draftReveal {
+  animation: draftReveal 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+@keyframes draftReveal {
+  from {
+    translate: 0 14px;
+  }
+}

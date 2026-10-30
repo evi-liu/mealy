@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Button } from '@base-ui/react/button'
-import { Plus, X } from 'lucide-react'
+import { Plus, Sparkles, X } from 'lucide-react'
 import {
   categories,
   recipeSchema,
@@ -10,6 +10,8 @@ import {
   type Recipe,
   type Bookmark,
 } from './domain'
+import { PromptBar } from './ai/PromptBar'
+import type { DraftBase, RecipeAi, RecipeDraft } from './ai/recipeAi'
 
 type EditableIngredient = Omit<Ingredient, 'unit'> & {
   unit: Ingredient['unit'] | ''
@@ -22,12 +24,15 @@ export function RecipeForm({
   onCancel,
   live,
   bookmark,
+  ai,
 }: {
   recipe?: Recipe
   onSave: (recipe: Recipe, image?: File) => Promise<boolean>
   onCancel: () => void
   live: boolean
   bookmark?: Bookmark
+  /** Offered only for brand-new recipes; drafts stay local until saved. */
+  ai?: RecipeAi
 }) {
   const reference = recipe?.source === 'reference'
   const [ingredients, setIngredients] = useState<EditableIngredient[]>(
@@ -55,6 +60,75 @@ export function RecipeForm({
   )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const formRef = useRef<HTMLFormElement>(null)
+  const [draft, setDraft] = useState<RecipeDraft>()
+  const [draftCount, setDraftCount] = useState(0)
+  const [aiDraft, setAiDraft] = useState(recipe?.aiDraft)
+  const [notes, setNotes] = useState<string[]>([])
+  const [aiError, setAiError] = useState('')
+  const [drafting, setDrafting] = useState(false)
+  const values = draft ?? recipe
+  function currentBase(): DraftBase {
+    const form = new FormData(formRef.current!)
+    const field = (name: string) => String(form.get(name) ?? '')
+    const number = (name: string) => {
+      const value = Number(field(name))
+      return field(name) && Number.isFinite(value) ? value : null
+    }
+    return {
+      title: field('title'),
+      description: field('description'),
+      servings: number('servings'),
+      maxServings: number('maxServings'),
+      minutes: number('minutes'),
+      protein: field('protein'),
+      leftovers: form.has('leftovers'),
+      potluck: form.has('potluck'),
+      ingredients: ingredients.map((item) => ({
+        name: item.name,
+        amount: Number.isNaN(item.amount) ? null : item.amount,
+        unit: item.unit,
+        category: item.category,
+      })),
+      instructions: field('instructions')
+        .split('\n')
+        .map((step) => step.trim())
+        .filter(Boolean),
+    }
+  }
+  async function requestDraft(instruction: string) {
+    if (!ai) return false
+    // Read the form before disabling it: disabled fields are not submitted.
+    const base = aiDraft ? currentBase() : undefined
+    setDrafting(true)
+    setAiError('')
+    try {
+      const result = await ai.draft({
+        instruction,
+        base,
+        history: aiDraft?.prompts.slice(-10) ?? [],
+      })
+      if ('declined' in result) {
+        setAiError(result.declined)
+        return false
+      }
+      setDraft(result.recipe)
+      setIngredients(result.recipe.ingredients)
+      setNotes(result.notes)
+      setAiDraft((current) => ({
+        createdAt: current?.createdAt ?? new Date().toISOString(),
+        prompts: [...(current?.prompts ?? []), instruction].slice(-20),
+      }))
+      setDraftCount((count) => count + 1)
+      setError('')
+      return true
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : String(error))
+      return false
+    } finally {
+      setDrafting(false)
+    }
+  }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
@@ -85,6 +159,7 @@ export function RecipeForm({
             .map((s) => s.trim())
             .filter(Boolean),
       imagePath: recipe?.imagePath,
+      aiDraft,
     })
     if (!parsed.success) {
       setError(
@@ -126,7 +201,7 @@ export function RecipeForm({
     )
   }
   return (
-    <form className="recipeForm" onSubmit={submit}>
+    <form className="recipeForm" onSubmit={submit} ref={formRef}>
       <h2>
         {reference
           ? 'Review recipe facts'
@@ -146,19 +221,67 @@ export function RecipeForm({
           and timing must be reviewed before this can enter a plan.
         </p>
       )}
+      {ai && !aiDraft && (
+        <section className="aiPrompt" aria-labelledby="ai-prompt-heading">
+          <h3 id="ai-prompt-heading">
+            <Sparkles size={17} /> Draft it with AI
+          </h3>
+          <p className="helper">
+            Describe a dish and AI fills in the form below. Nothing is saved
+            until you review it and tap Save.
+            {ai.demo && ' Demo mode shows a canned example.'}
+          </p>
+          <PromptBar
+            label="Describe a recipe to add"
+            placeholder="Describe a recipe you'd like to add..."
+            submitLabel="Draft recipe"
+            pending={drafting}
+            onSubmit={requestDraft}
+          />
+        </section>
+      )}
+      {aiDraft && (
+        <section className="notice aiNotice" aria-live="polite">
+          <strong>
+            <Sparkles size={15} /> AI-drafted · not kitchen-tested
+          </strong>
+          {notes.length > 0 && (
+            <ul>
+              {notes.map((note, index) => (
+                <li key={index}>{note}</li>
+              ))}
+            </ul>
+          )}
+          <p>Check amounts, servings, batch size and steps before saving.</p>
+        </section>
+      )}
+      {drafting && (
+        <p role="status" className="helper">
+          Drafting your recipe...
+        </p>
+      )}
+      {aiError && (
+        <p role="alert" className="error">
+          {aiError}
+        </p>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}
         </p>
       )}
-      <fieldset disabled={saving}>
+      <fieldset
+        disabled={saving || drafting}
+        key={draftCount}
+        className={draftCount ? 'draftReveal' : undefined}
+      >
         <label>
           Recipe name
           <input
             name="title"
             required
             maxLength={200}
-            defaultValue={recipe?.title ?? bookmark?.title}
+            defaultValue={values?.title ?? bookmark?.title}
           />
         </label>
         <label>
@@ -179,7 +302,7 @@ export function RecipeForm({
           <textarea
             name="description"
             maxLength={500}
-            defaultValue={recipe?.description}
+            defaultValue={values?.description}
           />
         </label>
         <div className="formGrid">
@@ -191,7 +314,7 @@ export function RecipeForm({
               min={1}
               max={30}
               required
-              defaultValue={recipe?.servings ?? (bookmark ? undefined : 4)}
+              defaultValue={values?.servings ?? (bookmark ? undefined : 4)}
             />
           </label>
           <label>
@@ -202,7 +325,7 @@ export function RecipeForm({
               min={2}
               max={60}
               required
-              defaultValue={recipe?.maxServings ?? (bookmark ? undefined : 12)}
+              defaultValue={values?.maxServings ?? (bookmark ? undefined : 12)}
             />
           </label>
           <label>
@@ -213,7 +336,7 @@ export function RecipeForm({
               min={1}
               max={1440}
               required
-              defaultValue={recipe?.minutes ?? (bookmark ? undefined : 30)}
+              defaultValue={values?.minutes ?? (bookmark ? undefined : 30)}
             />
           </label>
           <label>
@@ -224,7 +347,11 @@ export function RecipeForm({
               maxLength={200}
               placeholder="e.g. lentils"
               defaultValue={
-                recipe?.facts?.needsReview ? undefined : recipe?.protein
+                draft
+                  ? draft.protein
+                  : recipe?.facts?.needsReview
+                    ? undefined
+                    : recipe?.protein
               }
             />
           </label>
@@ -239,7 +366,7 @@ export function RecipeForm({
           <input
             name="leftovers"
             type="checkbox"
-            defaultChecked={recipe?.leftovers ?? !bookmark}
+            defaultChecked={values?.leftovers ?? !bookmark}
           />{' '}
           Good for leftover lunches
         </label>
@@ -247,7 +374,7 @@ export function RecipeForm({
           <input
             name="potluck"
             type="checkbox"
-            defaultChecked={recipe?.potluck ?? false}
+            defaultChecked={values?.potluck ?? false}
           />{' '}
           Suitable for a potluck
         </label>
@@ -375,7 +502,7 @@ export function RecipeForm({
               name="instructions"
               rows={6}
               required
-              defaultValue={recipe?.instructions.join('\n')}
+              defaultValue={values?.instructions.join('\n')}
             />
           </label>
         )}
@@ -383,7 +510,9 @@ export function RecipeForm({
           <input type="checkbox" required />
           {reference
             ? 'I reviewed the ingredient amounts, serving yield and practical batch size. Any photo I upload is mine or permitted.'
-            : 'These are my own recipe details, or I have permission to save them.'}
+            : aiDraft
+              ? 'I reviewed this AI-drafted recipe: amounts, servings, batch size and steps.'
+              : 'These are my own recipe details, or I have permission to save them.'}
         </label>
         {live && (
           <label>
@@ -404,6 +533,16 @@ export function RecipeForm({
           </Button>
         </div>
       </fieldset>
+      {ai && aiDraft && (
+        <PromptBar
+          sticky
+          label="Change this recipe"
+          placeholder="Change something..."
+          submitLabel="Update recipe"
+          pending={drafting}
+          onSubmit={requestDraft}
+        />
+      )}
     </form>
   )
 }

@@ -1,11 +1,13 @@
 # Mealy
 
-A mobile-first, installable React + TypeScript kitchen planner for one two-person household. Vite/static frontend, Base UI controls, Supabase Google authentication/Postgres/private Storage, and an optional server-side OpenAI ranking function. Intended Pages URL: `https://evi-liu.github.io/mealy/`.
+A mobile-first, installable React + TypeScript kitchen planner for one two-person household. Vite/static frontend, Base UI controls, Supabase Google authentication/Postgres/private Storage, and optional server-side OpenAI functions for shortlist ranking and recipe drafting. Intended Pages URL: `https://evi-liu.github.io/mealy/`.
 
 ## What works
 
 - Sunday setup defaults to **two dinners, four dinner servings, ten leftover lunch servings**. Kairos adds a separate eight-serving dish. Travel and Kairos start off. The explicitly labeled weekday assumption removes two lunches per Monday-Friday away; weekends do not alter lunch needs.
 - One shared shortlist of up to twelve recipes; like, temporary skip, undo, and explicit "don't recommend." Build unlocks on **viable serving coverage**, not simply a count of likes. You can continue swiping.
+- Recipe cards can be dragged and thrown. A small dependency-free spring engine (`src/motion/`) carries a fling toward the **Like** or **Not this week** edge targets that appear while the card is held; pausing before letting go (or releasing away from a target) springs the card back without voting. Buttons stay available and play the same animation; reduced-motion settings skip animation.
+- **Draft it with AI** at the top of **Add your recipe** describes a dish, fills the normal recipe form with an AI draft, and refines it from a text box at the bottom. Drafts stay on the device until the household reviews the form and saves. Saved drafts are labeled **AI-drafted**; demo mode uses a clearly labeled canned example instead of a model.
 - Deterministic combination selection among likes only, with leftover and maximum-batch constraints, variety, effort, ingredient overlap and pantry consideration. Compact thumbnail recipe rows retain pins and "We loved this"; there is no swap selector or "We cooked this" action. Pins preserve recipe/role when rebuilding. Recipes are not assigned to dates.
 - Scaled, categorized groceries after plan confirmation. Compatible mass/volume units merge; incompatible dimensions and different ingredient names do not. Measured inventory is deducted once. Unknown-quantity staples remain on the shopping list with a reminder.
 - Groceries show the ingredient first, then its amount. The **US kitchen / Metric** toggle defaults to US kitchen and saves your choice in this browser's local storage (`mealy-grocery-units`), independently of the shared household. It converts all displayed grocery quantities without changing arithmetic or shopping checks. Storage failures are shown explicitly. Pantry quick-add is one ingredient field plus a button; new entries mean "on hand, quantity unknown," not unlimited stock.
@@ -57,9 +59,11 @@ No Supabase service-role key is needed by the frontend **or** the ranking functi
 
 The state document keeps the recipe library, bookmarks, settings, shared queue, choices, pantry, plan and checks in one atomic unit. It is not a multi-tenant SaaS schema, background sync queue or cooking calendar. Writes are limited to a 2 MB document; the typed client caps libraries at 200 recipes, 200 bookmarks, 300 stock entries and twelve shortlisted recipes. Events are immutable via client privileges, with a security-invoker evidence view. Temporary skips are excluded from durable preference evidence. Explicit loved flags record first-time feedback; historical cooked feedback is preserved but no longer has a UI action.
 
-## Optional AI ranking
+## Optional AI ranking and recipe drafting
 
 The app's planning and serving logic works without AI. Clicking **Use optional AI ranking** sends the current household's recipe titles, ingredient names, time/variety, pantry names and explicit loved IDs to a server-side function, which calls OpenAI. It can only reorder the supplied shortlist and explain that order. It cannot create recipes, quantities or a plan, nor override dislikes or serving constraints.
+
+**Draft it with AI** (Recipes → Add your recipe) sends the household's description, its earlier requests for that draft, and the current unsaved form contents to the `recipe-draft` function, which asks OpenAI for one complete recipe in the app's units and categories. The answer is validated against the recipe bounds on the server and again in the browser; unusable answers are rejected rather than repaired. The model may decline unrelated or unsafe requests. Unlike ranking, this **does** produce model-written quantities, yields and steps: the form must be reviewed and an explicit acknowledgement checked before saving, and the recipe keeps an `aiDraft` provenance record (creation time and prompts). AI drafts are not kitchen-tested.
 
 Deploy with Supabase CLI after reviewing provider privacy/cost settings:
 
@@ -67,16 +71,17 @@ Deploy with Supabase CLI after reviewing provider privacy/cost settings:
 supabase secrets set APP_ORIGIN=https://evi-liu.github.io
 # Set OPENAI_API_KEY and OPENAI_MODEL privately using the Supabase dashboard.
 supabase functions deploy rank-recipes
+supabase functions deploy recipe-draft
 ```
 
 `APP_ORIGIN` is an origin (no `/mealy/` path); use `http://127.0.0.1:5173` for local browser testing. No model is silently defaulted. `OPENAI_MODEL` must name a model enabled for your API account that supports Responses structured JSON output. On 2026-10-28, the [official GPT-5.6 Terra page](https://developers.openai.com/api/docs/models/gpt-5.6-terra) documents API model ID `gpt-5.6-terra` and Responses support; availability for your account and cost still need confirmation. Previously suggested `GPT-6 Luna` API support has **not** been verified by this implementation. The older `gpt-4.1-mini` and `gpt-5-mini` pages were marked deprecated when checked; they are not hardcoded here.
 
-The Edge Function has gateway `verify_jwt=false` to support current Supabase signing keys, **but performs its own `auth.getUser(token)` authentication and household authorization on every request**. It uses the caller's token with RLS, not a bypass key, and a database-backed limit of 20 calls/household/hour. Unconfigured providers, invalid model output, timeouts and rate limits return explicit errors; local deterministic ordering remains unchanged. Requests use `store:false`; this is not a promise of zero retention by the provider.
+Both Edge Functions have gateway `verify_jwt=false` to support current Supabase signing keys, **but perform their own `auth.getUser(token)` authentication and household authorization on every request**. They use the caller's token with RLS, not a bypass key. Database-backed limits are 20 ranking calls and 60 drafting calls per household per hour (drafting needs `202610300001_ai_recipe_drafts.sql`). Unconfigured providers, invalid model output, timeouts and rate limits return explicit errors; local deterministic ordering remains unchanged. Requests use `store:false`; this is not a promise of zero retention by the provider.
 
 For optional static Edge Function checking with Deno installed:
 
 ```sh
-deno check supabase/functions/rank-recipes/index.ts
+deno check supabase/functions/rank-recipes/index.ts supabase/functions/recipe-draft/index.ts
 ```
 
 No embeddings, vector database, fine-tuning, or chat-memory dependence is needed for this slice.
@@ -97,7 +102,7 @@ Builds with no configuration expose only the labeled demo. Never treat a success
 ## Arithmetic and current boundaries
 
 - Whole servings are allocated across dinner recipes, no more than each recipe's user-entered maximum batch size. Only recipes explicitly marked leftover-friendly supply lunches. Potluck capacity is separate.
-- Ingredient quantities scale linearly from the original recipe yield. Cooking time, food safety, package sizes and substitutions are **not** inferred by a model.
+- Ingredient quantities scale linearly from the original recipe yield. Planning never asks a model for cooking time, food safety, package sizes or substitutions; only an explicitly requested, household-reviewed AI draft contains model-written recipe content.
 - Canonical units: grams, milliliters and each. Conversion uses 240 ml/cup, 15 ml/tbsp, 5 ml/tsp, 453.59237 g/lb and 28.349523125 g/oz. No cup-to-gram or ingredient alias guesses. Grocery display uses grams/kilograms and milliliters/liters in Metric, ounces/pounds and teaspoons/tablespoons/cups in US kitchen mode. Display rounds upward (one decimal for base metric units, three for kg/l, two for US units); internal totals and checklist identities never change. Existing measured pantry data is retained, while quick-add creates unknown-quantity staples.
 - This version assumes both people travel together and need Monday-Friday lunches. There is no separate per-person travel calendar. Removing pantry entries clears shopping checks so a newly increased requirement cannot remain falsely checked; adding an unknown-quantity staple does not alter quantities or checks.
 - The displayed plan is the saved week until **Start a fresh week** is explicitly confirmed. Historical plan snapshots are not yet exposed; durable learning events and preferences remain.

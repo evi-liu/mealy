@@ -349,6 +349,10 @@ test('trusted-source links stay bookmarks until reviewed manual details exist', 
     page.getByLabel('Source reference (optional HTTPS link)'),
   ).toHaveValue('https://thewoksoflife.com/example-recipe/')
   expect(requestedSources).toEqual([])
+  // Source-attributed manual entry is the household's own details, not AI.
+  await expect(
+    page.getByRole('textbox', { name: 'Describe a recipe to add' }),
+  ).toHaveCount(0)
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await page.getByRole('button', { name: 'Plan', exact: true }).click()
   await page.getByRole('button', { name: 'Start choosing recipes' }).click()

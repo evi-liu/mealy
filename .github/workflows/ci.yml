@@ -19,7 +19,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - run: deno check supabase/functions/rank-recipes/index.ts
+      - run: deno check supabase/functions/rank-recipes/index.ts supabase/functions/recipe-draft/index.ts
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
