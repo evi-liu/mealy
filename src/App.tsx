@@ -54,6 +54,7 @@ import {
 import { RecipeForm } from './RecipeForm'
 import { Bookmarks } from './Bookmarks'
 import { useGroceryUnits } from './useGroceryUnits'
+import { useFlingCard } from './motion/useFlingCard'
 
 const tabs = ['plan', 'groceries', 'pantry', 'recipes'] as const
 type Tab = (typeof tabs)[number]
@@ -481,7 +482,6 @@ function Swipe({
 }) {
   const [ranking, setRanking] = useState(false)
   const [reasons, setReasons] = useState<Record<string, string>>({})
-  const pointer = useRef<{ id: number; x: number; y: number } | null>(null)
   const pending = state.queue.filter(
     (id) =>
       !state.decisions[id] &&
@@ -498,13 +498,15 @@ function Swipe({
   } catch {
     canBuild = false
   }
-  function choose(choice: 'like' | 'skip') {
-    if (recipe)
-      void change((s) => decide(s, recipe.id, choice), {
-        kind: choice,
-        recipeId: recipe.id,
-      })
-  }
+  const recipeId = recipe?.id
+  const card = useFlingCard(async (choice) =>
+    recipeId
+      ? change((s) => decide(s, recipeId, choice), {
+          kind: choice,
+          recipeId,
+        })
+      : false,
+  )
   async function rank() {
     if (!supabase) return
     setRanking(true)
@@ -569,55 +571,55 @@ function Swipe({
       </p>
       {recipe ? (
         <>
-          <article
-            className="recipeCard"
-            aria-label={`Recipe: ${recipe.title}`}
-            onPointerDown={(e) => {
-              if (e.isPrimary)
-                pointer.current = {
-                  id: e.pointerId,
-                  x: e.clientX,
-                  y: e.clientY,
-                }
-            }}
-            onPointerCancel={() => {
-              pointer.current = null
-            }}
-            onPointerUp={(e) => {
-              const start = pointer.current
-              pointer.current = null
-              if (
-                start?.id === e.pointerId &&
-                Math.abs(e.clientX - start.x) > 65 &&
-                Math.abs(e.clientX - start.x) >
-                  Math.abs(e.clientY - start.y) * 1.5
-              )
-                choose(e.clientX > start.x ? 'like' : 'skip')
-            }}
-          >
-            <RecipeArt recipe={recipe} household={household} />
-            <div className="cardCopy">
-              <span className="eyebrow">
-                {recipe.source === 'demo'
-                  ? 'DEMO RECIPE'
-                  : state.loved.includes(recipe.id)
-                    ? 'A LOVED FAVORITE'
-                    : recipe.source === 'reference' && recipe.sourceUrl
-                      ? sourceName(recipe.sourceUrl)
-                      : 'FROM YOUR KITCHEN'}
-              </span>
-              <h2>{recipe.title}</h2>
-              <p>{recipe.description}</p>
-              <div className="tagRow">
-                <span>{recipe.minutes} min</span>
-                <span>Makes {recipe.servings}</span>
-                {recipe.leftovers && <span>Lunch-friendly</span>}
-              </div>
-              {reasons[recipe.id] && (
-                <p className="helper">AI suggestion: {reasons[recipe.id]}</p>
-              )}
+          <div className="cardStage" ref={card.stage} data-phase={card.phase}>
+            <div
+              className="dropTarget skip"
+              data-drop="skip"
+              aria-hidden="true"
+            >
+              <X size={30} />
+              <span>Not this week</span>
             </div>
-          </article>
+            <div
+              className="dropTarget like"
+              data-drop="like"
+              aria-hidden="true"
+            >
+              <Heart size={28} />
+              <span>Sounds good</span>
+            </div>
+            <article
+              key={recipe.id}
+              ref={card.card}
+              className="recipeCard"
+              aria-label={`Recipe: ${recipe.title}`}
+              onDragStart={(e) => e.preventDefault()}
+              {...card.handlers}
+            >
+              <RecipeArt recipe={recipe} household={household} />
+              <div className="cardCopy">
+                <span className="eyebrow">
+                  {recipe.source === 'demo'
+                    ? 'DEMO RECIPE'
+                    : state.loved.includes(recipe.id)
+                      ? 'A LOVED FAVORITE'
+                      : recipe.source === 'reference' && recipe.sourceUrl
+                        ? sourceName(recipe.sourceUrl)
+                        : 'FROM YOUR KITCHEN'}
+                </span>
+                <h2>{recipe.title}</h2>
+                <p>{recipe.description}</p>
+                <div className="tagRow">
+                  <span>{recipe.minutes} min</span>
+                  <span>Makes {recipe.servings}</span>
+                  {recipe.leftovers && <span>Lunch-friendly</span>}
+                </div>
+                {reasons[recipe.id] && (
+                  <p className="helper">AI suggestion: {reasons[recipe.id]}</p>
+                )}
+              </div>
+            </article>
+          </div>
           <div className="swipeActions">
             <Button
               className="roundAction"
@@ -635,14 +637,18 @@ function Swipe({
             <Button
               className="roundAction pass"
               aria-label="Not this week"
-              onClick={() => choose('skip')}
+              disabled={card.phase === 'flying'}
+              focusableWhenDisabled
+              onClick={() => card.fling('skip')}
             >
               <X size={30} />
             </Button>
             <Button
               className="roundAction like"
               aria-label="Appealing this week"
-              onClick={() => choose('like')}
+              disabled={card.phase === 'flying'}
+              focusableWhenDisabled
+              onClick={() => card.fling('like')}
             >
               <Heart size={28} />
             </Button>

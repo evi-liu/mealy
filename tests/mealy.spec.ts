@@ -213,39 +213,106 @@ test('key mobile screens meet automated WCAG AA checks', async ({ page }) => {
     ).violations,
   ).toEqual([])
 })
-test('touch-like pointer swipe and cancellation do not double vote', async ({
+// Dispatches a timed pointer gesture inside the page so release velocity is
+// measured from realistic event timestamps.
+async function gesture(
+  page: Page,
+  options: {
+    id: number
+    from: number
+    to: number
+    moves: number
+    pauseBeforeUp?: number
+    cancel?: boolean
+  },
+) {
+  return page.evaluate(async (o) => {
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    const card = document.querySelector('.recipeCard')!
+    const y = card.getBoundingClientRect().top + 120
+    const send = (type: string, x: number) =>
+      card.dispatchEvent(
+        new PointerEvent(type, {
+          pointerId: o.id,
+          isPrimary: true,
+          pointerType: 'touch',
+          clientX: x,
+          clientY: y,
+          bubbles: true,
+        }),
+      )
+    send('pointerdown', o.from)
+    for (let i = 1; i <= o.moves; i++) {
+      await sleep(16)
+      send('pointermove', o.from + ((o.to - o.from) * i) / o.moves)
+    }
+    await sleep(o.pauseBeforeUp ?? 0)
+    const held = {
+      phase: (document.querySelector('.cardStage') as HTMLElement).dataset
+        .phase,
+      like: Number(
+        getComputedStyle(document.querySelector('.dropTarget.like')!).opacity,
+      ),
+    }
+    send(o.cancel ? 'pointercancel' : 'pointerup', o.to)
+    return held
+  }, options)
+}
+
+test('dragging shows drop targets; throws commit, pauses and cancels return', async ({
   page,
 }) => {
   await start(page)
   await page.getByRole('button', { name: 'Start choosing recipes' }).click()
   const card = page.locator('.recipeCard')
+  const stage = page.locator('.cardStage')
   const first = await card.locator('h2').innerText()
-  await card.dispatchEvent('pointerdown', {
-    pointerId: 7,
-    isPrimary: true,
-    clientX: 100,
-    clientY: 200,
-  })
+  const width = page.viewportSize()!.width
+  const center = width / 2
 
-  await card.dispatchEvent('pointercancel', { pointerId: 7 })
-  await card.dispatchEvent('pointerup', {
-    pointerId: 7,
-    clientX: 240,
-    clientY: 205,
+  const held = await gesture(page, {
+    id: 7,
+    from: center - 40,
+    to: center + 40,
+    moves: 4,
+    pauseBeforeUp: 250,
+    cancel: true,
   })
+  expect(held.phase).toBe('held')
+  expect(held.like).toBeGreaterThan(0)
+  await expect(stage).toHaveAttribute('data-phase', 'idle')
+  await expect
+    .poll(() => card.evaluate((el) => (el as HTMLElement).style.transform))
+    .toBe('')
   await expect(card.locator('h2')).toHaveText(first)
-  await card.dispatchEvent('pointerdown', {
-    pointerId: 8,
-    isPrimary: true,
-    clientX: 100,
-    clientY: 200,
+
+  // Dragged well right but stopped before letting go: no momentum, no vote.
+  await gesture(page, {
+    id: 8,
+    from: center - 60,
+    to: center + 70,
+    moves: 8,
+    pauseBeforeUp: 250,
   })
-  await card.dispatchEvent('pointerup', {
-    pointerId: 8,
-    clientX: 240,
-    clientY: 205,
-  })
+  await expect(stage).toHaveAttribute('data-phase', 'idle')
+  await expect(card.locator('h2')).toHaveText(first)
+  await expect(page.getByText(/0 liked/)).toBeVisible()
+
+  // A quick throw carries the card to the like side.
+  await gesture(page, { id: 9, from: center - 40, to: center + 40, moves: 4 })
   await expect(page.getByText(/1 liked/)).toBeVisible()
+  await expect(card.locator('h2')).not.toHaveText(first)
+
+  // A slow drag released over the skip target counts without momentum.
+  await gesture(page, {
+    id: 10,
+    from: center,
+    to: 20,
+    moves: 20,
+    pauseBeforeUp: 250,
+  })
+  await expect(page.getByText(/1 liked · 8 to explore/)).toBeVisible()
+  await expect(stage).toHaveAttribute('data-phase', 'idle')
 })
 
 test('trusted-source links stay bookmarks until reviewed manual details exist', async ({

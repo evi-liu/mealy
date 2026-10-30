@@ -396,14 +396,84 @@ label {
 .empty p {
   font-size: 14px;
 }
+.swipeScreen {
+  overflow-x: clip;
+}
+.cardStage {
+  position: relative;
+  --like: 0;
+  --skip: 0;
+}
 .recipeCard {
+  position: relative;
+  z-index: 2;
   overflow: hidden;
   border-radius: 26px;
   background: var(--white);
   border: 1px solid var(--line);
-  touch-action: pan-y;
+  touch-action: none;
   box-shadow: 0 12px 25px #30291f10;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: grab;
+  animation: cardEnter 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  transition: box-shadow 0.2s;
+}
+.cardStage:not([data-phase='idle']) .recipeCard {
+  will-change: transform;
+  box-shadow: 0 22px 45px #30291f2a;
+}
+.cardStage[data-phase='held'] .recipeCard {
+  cursor: grabbing;
+}
+.recipeCard img {
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+@keyframes cardEnter {
+  from {
+    scale: 0.94;
+  }
+}
+.dropTarget {
+  position: fixed;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  width: 84px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.dropTarget span {
+  max-width: 64px;
+}
+.dropTarget.skip {
+  left: max(0px, calc(50% - 230px));
+  color: var(--tomato);
+  background: linear-gradient(90deg, #a9432e33, #a9432e00);
+  --strength: var(--skip);
+}
+.dropTarget.like {
+  right: max(0px, calc(50% - 230px));
+  color: var(--olive);
+  background: linear-gradient(270deg, #56634433, #56634400);
+  --strength: var(--like);
+}
+.dropTarget svg {
+  scale: calc(0.85 + var(--strength) * 0.35);
+}
+.cardStage:not([data-phase='idle']) .dropTarget {
+  opacity: calc(0.4 + var(--strength) * 0.6);
 }
 .recipeArt {
   position: relative;
@@ -1055,5 +1125,6 @@ h1[tabindex='-1']:focus {
   * {
     scroll-behavior: auto !important;
     transition: none !important;
+    animation: none !important;
   }
 }
