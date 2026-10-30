@@ -1,0 +1,100 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { CopilotClient } from '@github/copilot-sdk'
+import { createGateway } from './server.js'
+import { createGenerator } from './runtime.js'
+
+class ConfigurationError extends Error {}
+
+function required(name: string) {
+  const value = process.env[name]?.trim()
+  if (!value)
+    throw new ConfigurationError(
+      `Configure ${name} before starting the service.`,
+    )
+  return value
+}
+
+async function main() {
+  const token = required('COPILOT_GITHUB_TOKEN')
+  const login = required('COPILOT_EXPECTED_LOGIN')
+  const model = required('COPILOT_MODEL')
+  const gatewayToken = required('MEALY_GATEWAY_TOKEN')
+  const householdId = required('MEALY_HOUSEHOLD_ID')
+  const port = Number(process.env.PORT ?? '8787')
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new ConfigurationError('Invalid PORT.')
+  const directory = await mkdtemp(join(tmpdir(), 'mealy-copilot-'))
+  const client = new CopilotClient({
+    mode: 'empty',
+    gitHubToken: token,
+    useLoggedInUser: false,
+    workingDirectory: directory,
+    baseDirectory: directory,
+    logLevel: 'none',
+    env: {
+      PATH: process.env.PATH,
+      HOME: directory,
+      TMPDIR: directory,
+      COPILOT_GITHUB_TELEMETRY_DISABLED: 'true',
+    },
+  })
+  let server: ReturnType<typeof createGateway> | undefined
+  let stopping = false
+  async function stop() {
+    if (stopping) return
+    stopping = true
+    server?.close()
+    const errors = await client.stop()
+    if (errors.length) console.error('Copilot runtime shutdown failed')
+    // Only the unique temporary directory created by this process is removed.
+    await rm(directory, { recursive: true, force: true })
+  }
+  try {
+    await client.start()
+    const auth = await client.getAuthStatus()
+    if (
+      !auth.isAuthenticated ||
+      auth.login?.toLowerCase() !== login.toLowerCase()
+    )
+      throw new ConfigurationError(
+        'Copilot identity does not match COPILOT_EXPECTED_LOGIN.',
+      )
+    if (
+      !(await client.listModels()).some((available) => available.id === model)
+    )
+      throw new ConfigurationError(
+        'COPILOT_MODEL is not available to the configured account.',
+      )
+    server = createGateway(
+      { token: gatewayToken, householdId },
+      createGenerator(client, model),
+    )
+    await new Promise<void>((resolve, reject) => {
+      server!.once('error', reject)
+      server!.listen(port, process.env.HOST ?? '127.0.0.1', resolve)
+    })
+    console.log(`Mealy Copilot service listening on port ${port}`)
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.once(signal, () => {
+        void stop().catch(() => {
+          console.error('Copilot service shutdown failed')
+          process.exitCode = 1
+        })
+      })
+    }
+  } catch (error) {
+    await stop()
+    throw error
+  }
+}
+
+void main().catch((error) => {
+  console.error(
+    error instanceof ConfigurationError
+      ? error.message
+      : 'Copilot service could not start. Check gateway configuration, account access, usage limits, and installed runtime.',
+  )
+  process.exitCode = 1
+})

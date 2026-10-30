@@ -39,6 +39,8 @@ npx playwright install chromium webkit firefox
 npm run test:e2e             # mobile Chrome/Safari flows, keyboard/pointer, accessibility
 npm run build               # strict TypeScript + production app/service worker
 npm run format:check
+npm ci --prefix services/copilot
+npm test --prefix services/copilot # isolated SDK gateway tests; no model calls
 ```
 
 PGlite runs the real migration against PostgreSQL with minimal mocked `auth`/`storage` schemas. It checks allowed/denied access, stale writes, atomic events, image path isolation and rate limits. It does **not** substitute for testing hosted Google OAuth, Storage uploads or Supabase Edge Functions with real credentials. Browser tests build with a fake Supabase URL and intercept every external request using fixtures in `tests/fixtures/`. Fixtures and mock AI responses are not shipped in the app; tests never access the real household or make paid API requests.
@@ -79,24 +81,26 @@ Then run `supabase/setup-catalog-cron.sql` in the SQL editor with your project r
 
 ## Optional AI ranking and recipe drafting
 
-The app's planning and serving logic works without AI. Clicking **Use optional AI ranking** sends the current household's recipe titles, ingredient names, time/variety, pantry names and explicit loved IDs to a server-side function, which calls OpenAI. It can only reorder the supplied shortlist and explain that order. It cannot create recipes, quantities or a plan, nor override dislikes or serving constraints.
+The app's planning and serving logic works without AI. Clicking **Use optional AI ranking** sends the current household's recipe titles, ingredient names, time/variety, pantry names and explicit loved IDs to a Supabase function, which calls the server-side **Copilot SDK gateway**. It can only reorder the supplied shortlist and explain that order. It cannot create recipes, quantities or a plan, nor override dislikes or serving constraints.
 
 **Remix** (full recipe card) works the same way through `recipe-draft`, but the function loads the saved recipe itself from the household document by ID (including stored source facts for source-linked recipes) instead of trusting a copy from the browser. Highlights are computed in the app by comparing the saved recipe with the draft; the model's comments are attached where they match.
 
-**Draft it with AI** (Recipes → Add recipe) sends the household's description, its earlier requests for that draft, and the current unsaved form contents to the `recipe-draft` function, which asks OpenAI for one complete recipe in the app's units and categories. The answer is validated against the recipe bounds on the server and again in the browser; unusable answers are rejected rather than repaired. The model may decline unrelated or unsafe requests. Unlike ranking, this **does** produce model-written quantities, yields and steps: the form must be reviewed and an explicit acknowledgement checked before saving, and the recipe keeps an `aiDraft` provenance record (creation time and prompts). AI drafts are not kitchen-tested.
+**Draft it with AI** (Recipes → Add recipe) sends the household's description, its earlier requests for that draft, and the current unsaved form contents to the `recipe-draft` function, which asks Copilot for one complete recipe in the app's units and categories. The answer is validated against the recipe bounds on the server and again in the browser; unusable answers are rejected rather than repaired. The model may decline unrelated or unsafe requests. Unlike ranking, this **does** produce model-written quantities, yields and steps: the form must be reviewed and an explicit acknowledgement checked before saving, and the recipe keeps an `aiDraft` provenance record (creation time and prompts). AI drafts are not kitchen-tested.
 
-Deploy with Supabase CLI after reviewing provider privacy/cost settings:
+See [Copilot service setup and rollout](services/copilot/README.md). A persistent Node/container host is required alongside Supabase; the static frontend does not contain the SDK or credentials. Confirm the selected account's policy permits shared household usage. Configure its exact GitHub login and available model privately; the service refuses the wrong identity or an unavailable model and limits use to one explicitly approved household.
+
+After hosting, account configuration, and deployment approval:
 
 ```sh
 supabase secrets set APP_ORIGIN=https://evi-liu.github.io
-# Set OPENAI_API_KEY and OPENAI_MODEL privately using the Supabase dashboard.
+# Set COPILOT_GATEWAY_URL and COPILOT_GATEWAY_TOKEN privately in Supabase.
 supabase functions deploy rank-recipes
 supabase functions deploy recipe-draft
 ```
 
-`APP_ORIGIN` is an origin (no `/mealy/` path); use `http://127.0.0.1:5173` for local browser testing. No model is silently defaulted. `OPENAI_MODEL` must name a model enabled for your API account that supports Responses structured JSON output. On 2026-10-28, the [official GPT-5.6 Terra page](https://developers.openai.com/api/docs/models/gpt-5.6-terra) documents API model ID `gpt-5.6-terra` and Responses support; availability for your account and cost still need confirmation. Previously suggested `GPT-6 Luna` API support has **not** been verified by this implementation. The older `gpt-4.1-mini` and `gpt-5-mini` pages were marked deprecated when checked; they are not hardcoded here.
+`APP_ORIGIN` is an origin (no `/mealy/` path); use `http://127.0.0.1:5173` in a separate local configuration for local browser testing. Do not overwrite the production origin. `COPILOT_MODEL` is set on the gateway, with no default; account/model availability and real structured-output support must be verified before rollout. Existing `OPENAI_*` secrets are no longer read by these functions. There is no automatic OpenAI fallback or transfer of OpenAI billing to Copilot.
 
-Both Edge Functions have gateway `verify_jwt=false` to support current Supabase signing keys, **but perform their own `auth.getUser(token)` authentication and household authorization on every request**. They use the caller's token with RLS, not a bypass key. Database-backed limits are 20 ranking calls and 60 drafting calls per household per hour (drafting needs `202610300001_ai_recipe_drafts.sql`). Unconfigured providers, invalid model output, timeouts and rate limits return explicit errors; local deterministic ordering remains unchanged. Requests use `store:false`; this is not a promise of zero retention by the provider.
+Both Edge Functions have gateway `verify_jwt=false` to support current Supabase signing keys, **but perform their own `auth.getUser(token)` authentication and household authorization on every request**. They use the caller's token with RLS, not a bypass key. Database-backed limits are 20 ranking calls and 60 drafting calls per household per hour (drafting needs `202610300001_ai_recipe_drafts.sql`). The Copilot service additionally requires a server-only gateway secret and checks the allowed household. Unconfigured providers, invalid model output, timeouts and rate limits return explicit errors; local deterministic ordering remains unchanged. Each request uses a fresh, tool-disabled SDK session, deleted afterward. Provider retention and usage remain subject to the Copilot account's policies.
 
 For optional static Edge Function checking with Deno installed:
 

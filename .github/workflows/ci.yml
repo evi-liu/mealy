@@ -16,6 +16,8 @@ jobs:
       - run: npm ci
       - run: npm run format:check
       - run: npm test
+      - run: npm ci --prefix services/copilot
+      - run: npm test --prefix services/copilot
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
