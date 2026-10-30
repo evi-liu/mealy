@@ -12,6 +12,7 @@ import {
   stateSchema,
   swapRecipe,
   targets,
+  toggleGroceryCheck,
   toggleLoved,
   undo,
   weekKey,
@@ -391,5 +392,73 @@ describe('remixes and loved feedback', () => {
     const unloved = toggleLoved(loved.state, demoRecipes[0].id)
     expect(unloved.state.loved).toEqual([])
     expect(unloved.event.kind).toBe('unloved')
+  })
+})
+
+describe('groceries and the pantry', () => {
+  it('adds a checked grocery to the pantry and removes it when unchecked', () => {
+    const state = initialState(demoRecipes)
+    const checked = toggleGroceryCheck(state, 'rice:g', 'rice')
+    expect(checked.checked).toEqual(['rice:g'])
+    expect(checked.pantry).toEqual([
+      expect.objectContaining({
+        name: 'rice',
+        kind: 'staple',
+        fromGrocery: 'rice:g',
+      }),
+    ])
+    const unchecked = toggleGroceryCheck(checked, 'rice:g', 'rice')
+    expect(unchecked.checked).toEqual([])
+    expect(unchecked.pantry).toEqual([])
+  })
+  it('never duplicates or removes stock the household entered itself', () => {
+    const own: PantryItem = {
+      id: 'p1',
+      name: 'rice',
+      kind: 'staple',
+      amount: 1,
+      unit: 'each',
+      note: 'half full',
+    }
+    const state = { ...initialState(demoRecipes), pantry: [own] }
+    const checked = toggleGroceryCheck(state, 'rice:g', 'Rice')
+    expect(checked.pantry).toEqual([own])
+    expect(toggleGroceryCheck(checked, 'rice:g', 'Rice').pantry).toEqual([own])
+  })
+  it('keeps the pantry, notes and bought items for a fresh week', () => {
+    const state = toggleGroceryCheck(
+      {
+        ...initialState(demoRecipes),
+        pantry: [
+          {
+            id: 'p1',
+            name: 'eggs',
+            kind: 'staple',
+            amount: 1,
+            unit: 'each',
+            note: '10 left',
+          },
+        ],
+      },
+      'rice:g',
+      'rice',
+    )
+    const next = newWeek(state)
+    expect(next.checked).toEqual([])
+    expect(next.pantry.map((p) => [p.name, p.note, p.fromGrocery])).toEqual([
+      ['eggs', '10 left', undefined],
+      ['rice', undefined, undefined],
+    ])
+  })
+  it('does not flag an item as a staple reminder on the list that bought it', () => {
+    const state = ready()
+    const plan = buildPlan(state)
+    const item = groceries(plan, state.recipes, [])[0]
+    const bought = toggleGroceryCheck(state, item.key, item.name)
+    const after = groceries(plan, bought.recipes, bought.pantry).find(
+      (g) => g.key === item.key,
+    )!
+    expect(after.staple).toBe(false)
+    expect(after.buy).toBe(item.buy)
   })
 })

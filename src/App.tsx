@@ -13,6 +13,7 @@ import {
   LogOut,
   Minus,
   PackageOpen,
+  Pencil,
   Pin,
   Plus,
   RotateCcw,
@@ -37,9 +38,11 @@ import {
   placeRemix,
   shortlist,
   targets,
+  toggleGroceryCheck,
   toggleLoved,
   undo,
   weekKey,
+  type PantryItem,
   type Recipe,
   type Settings,
   type State,
@@ -799,12 +802,7 @@ function Groceries({
                       disabled={item.buy === 0}
                       onChange={() =>
                         void change(
-                          (s) => ({
-                            ...s,
-                            checked: s.checked.includes(item.key)
-                              ? s.checked.filter((k) => k !== item.key)
-                              : [...s.checked, item.key],
-                          }),
+                          (s) => toggleGroceryCheck(s, item.key, item.name),
                           { kind: 'grocery' },
                         )
                       }
@@ -838,11 +836,127 @@ function Groceries({
       <p className="helper">
         Measured stock is subtracted once per ingredient and compatible unit.
         Staples are reminders, never assumed to cover an unknown quantity.
-        Shopping checks do not automatically change your pantry. US kitchen
-        units use 240 ml cups, 15 ml tablespoons and 5 ml teaspoons. Weight is
-        never converted to cups.
+        Checking off an item adds it to your pantry as on hand; unchecking
+        removes it again. US kitchen units use 240 ml cups, 15 ml tablespoons
+        and 5 ml teaspoons. Weight is never converted to cups.
       </p>
     </main>
+  )
+}
+
+const pantryNoteHint = 'Describe how many or how much is left'
+
+function PantryRow({
+  item,
+  change,
+}: {
+  item: PantryItem
+  change: HouseholdStore['change']
+}) {
+  const [editing, setEditing] = useState(false)
+  if (editing)
+    return (
+      <form
+        className="pantryItem pantryEdit"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          const data = new FormData(e.currentTarget)
+          const name = normalize(String(data.get('name')))
+          const note = String(data.get('note')).trim()
+          if (
+            await change(
+              (s) => {
+                if (
+                  s.pantry.some(
+                    (p) => p.id !== item.id && normalize(p.name) === name,
+                  )
+                )
+                  throw new Error('That ingredient is already in your pantry.')
+                return {
+                  ...s,
+                  pantry: s.pantry.map((p) =>
+                    p.id === item.id
+                      ? { ...p, name, note: note || undefined }
+                      : p,
+                  ),
+                }
+              },
+              { kind: 'pantry' },
+            )
+          )
+            setEditing(false)
+        }}
+      >
+        <input
+          aria-label={`Name for ${item.name}`}
+          name="name"
+          required
+          maxLength={200}
+          defaultValue={item.name}
+          autoComplete="off"
+        />
+        <input
+          aria-label={`How much ${item.name} is left`}
+          name="note"
+          maxLength={60}
+          defaultValue={item.note}
+          placeholder={pantryNoteHint}
+          autoComplete="off"
+          enterKeyHint="done"
+        />
+        <div className="buttonRow">
+          <Button className="textButton" onClick={() => setEditing(false)}>
+            Cancel
+          </Button>
+          <Button className="textButton" type="submit">
+            Save
+          </Button>
+        </div>
+      </form>
+    )
+  return (
+    <div className="pantryItem">
+      <span className="pantryDot" aria-hidden="true" />
+      <span className="pantryName">
+        <strong>{item.name}</strong>
+        {(item.kind === 'quantity' || item.note) && (
+          <small>
+            {item.kind === 'quantity'
+              ? `${displayAmount(item.amount)} ${item.unit}`
+              : ''}
+            {item.kind === 'quantity' && item.note ? ' · ' : ''}
+            {item.note}
+          </small>
+        )}
+      </span>
+      <Button
+        className="iconButton pantryRemove"
+        aria-label={`Edit ${item.name}`}
+        onClick={() => setEditing(true)}
+      >
+        <Pencil size={16} />
+      </Button>
+      <Button
+        className="iconButton pantryRemove"
+        aria-label={`Remove ${item.name}`}
+        onClick={() =>
+          void change(
+            (s) => ({
+              ...s,
+              pantry: s.pantry.filter((p) => p.id !== item.id),
+              // A bought item only unchecks its own grocery; removing other
+              // stock can raise needs, so every check is cleared.
+              checked: item.fromGrocery
+                ? s.checked.filter((key) => key !== item.fromGrocery)
+                : [],
+            }),
+            { kind: 'pantry' },
+          )
+        }
+      >
+        <X size={18} />
+      </Button>
+    </div>
   )
 }
 
@@ -873,6 +987,7 @@ function Pantry({
             await change(
               (s) => {
                 const name = normalize(String(data.get('name')))
+                const note = String(data.get('note') ?? '').trim()
                 if (s.pantry.some((item) => normalize(item.name) === name))
                   throw new Error('That ingredient is already in your pantry.')
                 return {
@@ -885,14 +1000,17 @@ function Pantry({
                       kind: 'staple',
                       amount: 1,
                       unit: 'each',
+                      ...(note ? { note } : {}),
                     },
                   ],
                 }
               },
               { kind: 'pantry' },
             )
-          )
+          ) {
             form.reset()
+            form.querySelector('input')?.focus()
+          }
         }}
       >
         <input
@@ -901,6 +1019,15 @@ function Pantry({
           required
           maxLength={200}
           placeholder="Add an ingredient..."
+          autoComplete="off"
+          enterKeyHint="next"
+        />
+        <input
+          className="pantryNote"
+          aria-label="How much is left (optional)"
+          name="note"
+          maxLength={60}
+          placeholder={pantryNoteHint}
           autoComplete="off"
           enterKeyHint="done"
         />
@@ -917,33 +1044,7 @@ function Pantry({
           <p className="helper">Add your first ingredient above.</p>
         )}
         {state.pantry.map((item) => (
-          <div className="pantryItem" key={item.id}>
-            <span className="pantryDot" aria-hidden="true" />
-            <span className="pantryName">
-              <strong>{item.name}</strong>
-              {item.kind === 'quantity' && (
-                <small>
-                  {displayAmount(item.amount)} {item.unit}
-                </small>
-              )}
-            </span>
-            <Button
-              className="iconButton pantryRemove"
-              aria-label={`Remove ${item.name}`}
-              onClick={() =>
-                void change(
-                  (s) => ({
-                    ...s,
-                    pantry: s.pantry.filter((p) => p.id !== item.id),
-                    checked: [],
-                  }),
-                  { kind: 'pantry' },
-                )
-              }
-            >
-              <X size={18} />
-            </Button>
-          </div>
+          <PantryRow key={item.id} item={item} change={change} />
         ))}
       </section>
     </main>

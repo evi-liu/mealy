@@ -80,7 +80,11 @@ test('pantry is a quick ingredient field, rejects duplicates and does not assume
   await page.getByRole('button', { name: 'Try the demo' }).click()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
   const input = page.getByRole('textbox', { name: 'Add pantry ingredient' })
-  await expect(page.locator('.pantryQuickAdd input')).toHaveCount(1)
+  // An ingredient plus an optional free-text note; no quantity pickers.
+  await expect(page.locator('.pantryQuickAdd input')).toHaveCount(2)
+  await expect(
+    page.getByRole('textbox', { name: 'How much is left (optional)' }),
+  ).toHaveAttribute('placeholder', 'Describe how many or how much is left')
   await expect(page.getByRole('spinbutton')).toHaveCount(0)
   await expect(page.locator('select')).toHaveCount(0)
   await input.fill('Rice')

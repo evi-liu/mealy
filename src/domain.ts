@@ -152,6 +152,10 @@ export const pantrySchema = z.object({
   kind: z.enum(['quantity', 'staple']),
   amount,
   unit: z.enum(units),
+  /** The household's own words, e.g. "half full"; never parsed into amounts. */
+  note: z.string().trim().max(60).optional(),
+  /** Grocery key whose check added this item; unchecking removes it. */
+  fromGrocery: z.string().max(210).optional(),
 })
 export const slotSchema = z.object({
   recipeId: text,
@@ -318,7 +322,8 @@ export function groceries(
   }
   for (const item of merged.values()) {
     for (const stock of pantry.filter(
-      (stock) => normalize(stock.name) === item.name,
+      (stock) =>
+        normalize(stock.name) === item.name && stock.fromGrocery !== item.key,
     )) {
       if (stock.kind === 'staple') item.staple = true
       else {
@@ -580,10 +585,49 @@ export function undo(state: State): State {
   }
 }
 
+/**
+ * Checking off a grocery puts it in the pantry as on hand (quantity unknown,
+ * so this week's list is unchanged); unchecking removes only what the check
+ * added. Existing pantry entries for the same ingredient are left alone.
+ */
+export function toggleGroceryCheck(
+  state: State,
+  key: string,
+  name: string,
+): State {
+  if (state.checked.includes(key))
+    return {
+      ...state,
+      checked: state.checked.filter((k) => k !== key),
+      pantry: state.pantry.filter((item) => item.fromGrocery !== key),
+    }
+  const stocked = state.pantry.some(
+    (item) => normalize(item.name) === normalize(name),
+  )
+  return {
+    ...state,
+    checked: [...state.checked, key],
+    pantry: stocked
+      ? state.pantry
+      : [
+          ...state.pantry,
+          {
+            id: crypto.randomUUID(),
+            name: normalize(name),
+            kind: 'staple',
+            amount: 1,
+            unit: 'each',
+            fromGrocery: key,
+          },
+        ],
+  }
+}
+
 export function newWeek(state: State): State {
   return {
     ...initialState(state.recipes),
-    pantry: state.pantry,
+    // Bought groceries stay as ordinary pantry items for the new week.
+    pantry: state.pantry.map(({ fromGrocery: _bought, ...item }) => item),
     bookmarks: state.bookmarks,
     blocked: state.blocked,
     loved: state.loved,

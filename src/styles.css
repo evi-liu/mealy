@@ -1336,3 +1336,20 @@ ul.changeList {
   gap: 10px;
   flex-wrap: wrap;
 }
+.pantryQuickAdd {
+  flex-wrap: wrap;
+}
+.pantryQuickAdd input:first-child {
+  flex-basis: 100%;
+}
+.pantryEdit {
+  flex-wrap: wrap;
+  padding: 10px 0;
+}
+.pantryEdit input {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.pantryEdit .buttonRow {
+  margin-left: auto;
+}
