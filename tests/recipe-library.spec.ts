@@ -233,12 +233,28 @@ async function drag(
   const x = box.x + Math.min(box.width - 15, 170)
   const y = box.y + box.height / 2
   await page.mouse.move(x, y)
+  const front = row.locator('.recipeRowFront')
+  if (cancel)
+    await front.evaluate((element) => {
+      element.addEventListener(
+        'pointerdown',
+        (event) => {
+          if (event instanceof PointerEvent)
+            element.setAttribute(
+              'data-test-pointer-id',
+              String(event.pointerId),
+            )
+        },
+        { once: true },
+      )
+    })
   await page.mouse.down()
   await page.mouse.move(x + dx, y + dy, { steps: 12 })
-  if (cancel)
-    await row
-      .locator('.recipeRowFront')
-      .dispatchEvent('pointercancel', { pointerId: 1 })
+  if (cancel) {
+    const pointerId = await front.getAttribute('data-test-pointer-id')
+    expect(pointerId).not.toBeNull()
+    await front.dispatchEvent('pointercancel', { pointerId: Number(pointerId) })
+  }
   await page.mouse.up()
 }
 

@@ -246,16 +246,34 @@ test('pantry removal is hidden until a left swipe and supports keyboard access',
   const rows = page.locator('.pantryItem')
   const first = rows.first()
   async function swipe(row: Locator, dx: number, dy = 0, cancel = false) {
-    const box = (await row.locator('.pantryRowFront').boundingBox())!
+    const front = row.locator('.pantryRowFront')
+    const box = (await front.boundingBox())!
     const x = box.x + 150
     const y = box.y + box.height / 2
     await page.mouse.move(x, y)
+    if (cancel)
+      await front.evaluate((element) => {
+        element.addEventListener(
+          'pointerdown',
+          (event) => {
+            if (event instanceof PointerEvent)
+              element.setAttribute(
+                'data-test-pointer-id',
+                String(event.pointerId),
+              )
+          },
+          { once: true },
+        )
+      })
     await page.mouse.down()
     await page.mouse.move(x + dx, y + dy, { steps: 10 })
-    if (cancel)
-      await row
-        .locator('.pantryRowFront')
-        .dispatchEvent('pointercancel', { pointerId: 1 })
+    if (cancel) {
+      const pointerId = await front.getAttribute('data-test-pointer-id')
+      expect(pointerId).not.toBeNull()
+      await front.dispatchEvent('pointercancel', {
+        pointerId: Number(pointerId),
+      })
+    }
     await page.mouse.up()
   }
   await first.locator('.pantryRowFront').click()
@@ -266,6 +284,7 @@ test('pantry removal is hidden until a left swipe and supports keyboard access',
   await expect(first).toHaveAttribute('data-revealed', 'false')
   await swipe(first, -5, 40)
   await expect(first).toHaveAttribute('data-revealed', 'false')
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('')
   await swipe(first, -70)
   await expect(first.getByRole('button', { name: 'Remove rice' })).toBeVisible()
   expect(kitchen.state.pantry).toHaveLength(2)

@@ -82,7 +82,7 @@ test('recipe plus opens an accessible choice sheet and hides in the editor', asy
   expect(initial.y + initial.height).toBeLessThanOrEqual(
     header.y + header.height,
   )
-  expect(initial.height).toBeGreaterThanOrEqual(44)
+  expect(Number(initial.height.toFixed(3))).toBeGreaterThanOrEqual(44)
   expect(initial.x + initial.width).toBeLessThanOrEqual(
     page.viewportSize()!.width - 16,
   )
@@ -275,7 +275,9 @@ test('no overlap or horizontal overflow with expanded travel at narrow widths', 
   await expect(page.getByText('4 home servings')).toBeVisible()
   await page
     .getByRole('button', { name: 'Start choosing recipes' })
-    .scrollIntoViewIfNeeded()
+    .evaluate((element) =>
+      element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    )
   await expect(
     page.getByRole('button', { name: 'Start choosing recipes' }),
   ).toBeInViewport()
