@@ -106,16 +106,25 @@ test('pantry is a quick ingredient field, rejects duplicates and does not assume
   await page.goto('./')
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
   const input = page.getByRole('textbox', { name: 'Add pantry ingredient' })
-  // An ingredient plus an optional free-text note; no quantity pickers.
-  await expect(page.locator('.pantryQuickAdd input')).toHaveCount(2)
+  await expect(page.locator('.pantryQuickAdd input')).toHaveCount(1)
   await expect(
     page.getByRole('textbox', { name: 'How much is left (optional)' }),
-  ).toHaveAttribute('placeholder', 'Describe how many or how much is left')
+  ).toHaveCount(0)
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    const field = (await input.boundingBox())!
+    const add = (await page
+      .getByRole('button', { name: 'Add pantry ingredient' })
+      .boundingBox())!
+    expect(Math.abs(field.y - add.y)).toBeLessThan(1)
+    expect(add.x + add.width).toBeLessThanOrEqual(width)
+  }
   await expect(page.getByRole('spinbutton')).toHaveCount(0)
   await expect(page.locator('select')).toHaveCount(0)
   await input.fill('Rice')
   await input.press('Enter')
   await expect(input).toHaveValue('')
+  await expect(input).toBeFocused()
   await expect(page.locator('.pantryItem')).toHaveCount(1)
   await expect(page.locator('.pantryItem')).toHaveText('rice')
   await expect(page.locator('.pantryItem small')).toHaveCount(0)

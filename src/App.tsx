@@ -975,6 +975,14 @@ function Pantry({
   state: State
   change: HouseholdStore['change']
 }) {
+  const ingredientInput = useRef<HTMLInputElement>(null)
+  const [focusAfterAdd, setFocusAfterAdd] = useState(false)
+  useEffect(() => {
+    if (focusAfterAdd) {
+      ingredientInput.current?.focus()
+      setFocusAfterAdd(false)
+    }
+  }, [focusAfterAdd])
   return (
     <main className="screen">
       <Header
@@ -995,7 +1003,6 @@ function Pantry({
             await change(
               (s) => {
                 const name = normalize(String(data.get('name')))
-                const note = String(data.get('note') ?? '').trim()
                 if (s.pantry.some((item) => normalize(item.name) === name))
                   throw new Error('That ingredient is already in your pantry.')
                 return {
@@ -1008,7 +1015,6 @@ function Pantry({
                       kind: 'staple',
                       amount: 1,
                       unit: 'each',
-                      ...(note ? { note } : {}),
                     },
                   ],
                 }
@@ -1017,25 +1023,17 @@ function Pantry({
             )
           ) {
             form.reset()
-            form.querySelector('input')?.focus()
+            setFocusAfterAdd(true)
           }
         }}
       >
         <input
+          ref={ingredientInput}
           aria-label="Add pantry ingredient"
           name="name"
           required
           maxLength={200}
           placeholder="Add an ingredient..."
-          autoComplete="off"
-          enterKeyHint="next"
-        />
-        <input
-          className="pantryNote"
-          aria-label="How much is left (optional)"
-          name="note"
-          maxLength={60}
-          placeholder={pantryNoteHint}
           autoComplete="off"
           enterKeyHint="done"
         />

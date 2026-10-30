@@ -1711,12 +1711,6 @@ ul.changeList {
   gap: 10px;
   flex-wrap: wrap;
 }
-.pantryQuickAdd {
-  flex-wrap: wrap;
-}
-.pantryQuickAdd input:first-child {
-  flex-basis: 100%;
-}
 .pantryEdit {
   flex-wrap: wrap;
   padding: 10px 0;

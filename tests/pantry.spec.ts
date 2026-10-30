@@ -58,7 +58,7 @@ test('checking off a grocery stocks the pantry and unchecking takes it back', as
   await expect(page.locator('.pantryItem')).toHaveCount(1)
 })
 
-test('pantry items take an optional note when adding and editing', async ({
+test('pantry quick-add only needs a name and optional notes remain editable', async ({
   page,
 }) => {
   await page.goto('./')
@@ -67,10 +67,12 @@ test('pantry items take an optional note when adding and editing', async ({
   await page
     .getByRole('textbox', { name: 'Add pantry ingredient' })
     .fill('Olive oil')
-  await page
-    .getByRole('textbox', { name: 'How much is left (optional)' })
-    .fill('half full')
   await page.getByRole('button', { name: 'Add pantry ingredient' }).click()
+  await page.getByRole('button', { name: 'Edit olive oil' }).click()
+  await page
+    .getByRole('textbox', { name: 'How much olive oil is left' })
+    .fill('half full')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
   await page
     .getByRole('textbox', { name: 'Add pantry ingredient' })
     .fill('eggs')
