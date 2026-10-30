@@ -7,10 +7,12 @@ import {
   groceries,
   initialState,
   newWeek,
+  placeRemix,
   shortlist,
   stateSchema,
   swapRecipe,
   targets,
+  toggleLoved,
   undo,
   weekKey,
   type PantryItem,
@@ -346,5 +348,48 @@ describe('grocery arithmetic', () => {
         recipes: [{ ...recipe, servings: 0 }],
       }).success,
     ).toBe(false)
+  })
+})
+
+describe('remixes and loved feedback', () => {
+  function planned(): State {
+    const state = ready()
+    return { ...state, plan: buildPlan(state), phase: 'plan', confirmed: true }
+  }
+  it('puts a fitting remix in its original slot, pinned and liked', () => {
+    const state = planned()
+    const original = state.recipes.find((r) => r.id === state.plan[0].recipeId)!
+    const remix: Recipe = { ...original, id: 'remix-1', source: 'own' }
+    const next = placeRemix(state, 0, original.id, remix)!
+    expect(next.plan[0]).toMatchObject({ recipeId: 'remix-1', pinned: true })
+    expect(next.plan[1]).toEqual(state.plan[1])
+    expect(next.decisions['remix-1']).toBe('like')
+    expect(next.confirmed).toBe(false)
+    expect(next.checked).toEqual([])
+  })
+  it('leaves the plan alone when the remix cannot cover the slot', () => {
+    const state = planned()
+    const slot = state.plan.find((s) => s.servings > 2)!
+    const index = state.plan.indexOf(slot)
+    const original = state.recipes.find((r) => r.id === slot.recipeId)!
+    expect(
+      placeRemix(state, index, original.id, {
+        ...original,
+        id: 'remix-2',
+        leftovers: false,
+      }),
+    ).toBeNull()
+    expect(
+      placeRemix(state, index, 'someone-else', { ...original, id: 'remix-3' }),
+    ).toBeNull()
+  })
+  it('toggles loved and records which way', () => {
+    const state = initialState(demoRecipes)
+    const loved = toggleLoved(state, demoRecipes[0].id)
+    expect(loved.state.loved).toEqual([demoRecipes[0].id])
+    expect(loved.event.kind).toBe('loved')
+    const unloved = toggleLoved(loved.state, demoRecipes[0].id)
+    expect(unloved.state.loved).toEqual([])
+    expect(unloved.event.kind).toBe('unloved')
   })
 })

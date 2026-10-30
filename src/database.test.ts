@@ -65,6 +65,15 @@ beforeAll(async () => {
       'utf8',
     ),
   )
+  await db.exec(
+    await readFile(
+      new URL(
+        '../supabase/migrations/202610300002_unloved_event.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  )
   for (const id of [householdA, householdB])
     await db.query(
       'insert into public.household_state(household_id,data) values ($1,$2)',
@@ -192,6 +201,15 @@ describe('actual migration on embedded PostgreSQL', () => {
           )
         ).rows[0].version,
       ).toBe(1)
+      // Taking back a loved recipe is a recorded event of its own.
+      expect(
+        (
+          await db.query<{ v: number }>(
+            'select public.save_household(1,$1,$2,$3) as v',
+            [initialState(), 'unloved', 'demo-1'],
+          )
+        ).rows[0].v,
+      ).toBe(2)
     })
   })
   it('forbids direct mutation, self-invitation, and cross-household image access', async () => {

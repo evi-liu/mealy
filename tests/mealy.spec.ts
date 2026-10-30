@@ -141,6 +141,12 @@ test('adds an actual recipe with precise unit selections', async ({ page }) => {
     .getByRole('checkbox', { name: /These are my own recipe details/ })
     .check()
   await page.getByRole('button', { name: 'Save recipe', exact: true }).click()
+  // An untouched form goes straight back without asking.
+  await page.getByRole('button', { name: 'Add your recipe' }).click()
+  await page.getByRole('button', { name: 'Back to recipes' }).click()
+  await expect(
+    page.getByRole('button', { name: 'Add your recipe' }),
+  ).toBeVisible()
   await page.getByRole('button', { name: 'Our rice', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText('2 cup rice')
 })

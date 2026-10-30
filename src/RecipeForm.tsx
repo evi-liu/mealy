@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { Button } from '@base-ui/react/button'
-import { Plus, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, Plus, Sparkles, X } from 'lucide-react'
 import {
   categories,
   recipeSchema,
@@ -11,6 +11,7 @@ import {
   type Bookmark,
 } from './domain'
 import { PromptBar } from './ai/PromptBar'
+import { flyToDeck } from './motion/flyToDeck'
 import type { DraftBase, RecipeAi, RecipeDraft } from './ai/recipeAi'
 
 type EditableIngredient = Omit<Ingredient, 'unit'> & {
@@ -25,6 +26,9 @@ export function RecipeForm({
   live,
   bookmark,
   ai,
+  heading,
+  notice,
+  celebrate = false,
 }: {
   recipe?: Recipe
   onSave: (recipe: Recipe, image?: File) => Promise<boolean>
@@ -33,6 +37,10 @@ export function RecipeForm({
   bookmark?: Bookmark
   /** Offered only for brand-new recipes; drafts stay local until saved. */
   ai?: RecipeAi
+  heading?: string
+  notice?: string
+  /** Throw a card into the Recipes tab once a new recipe is saved. */
+  celebrate?: boolean
 }) {
   const reference = recipe?.source === 'reference'
   const [ingredients, setIngredients] = useState<EditableIngredient[]>(
@@ -67,6 +75,17 @@ export function RecipeForm({
   const [notes, setNotes] = useState<string[]>([])
   const [aiError, setAiError] = useState('')
   const [drafting, setDrafting] = useState(false)
+  const [touched, setTouched] = useState(false)
+  function leave() {
+    if (
+      (touched || draft) &&
+      !window.confirm(
+        'Leave without saving? Your changes to this recipe will be lost.',
+      )
+    )
+      return
+    onCancel()
+  }
   const values = draft ?? recipe
   function currentBase(): DraftBase {
     const form = new FormData(formRef.current!)
@@ -114,7 +133,7 @@ export function RecipeForm({
       }
       setDraft(result.recipe)
       setIngredients(result.recipe.ingredients)
-      setNotes(result.notes)
+      setNotes(result.notes.map((note) => note.text))
       setAiDraft((current) => ({
         createdAt: current?.createdAt ?? new Date().toISOString(),
         prompts: [...(current?.prompts ?? []), instruction].slice(-20),
@@ -131,6 +150,7 @@ export function RecipeForm({
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const button = (event.nativeEvent as SubmitEvent).submitter
     const form = new FormData(event.currentTarget)
     const parsed = recipeSchema.safeParse({
       id: recipe?.id ?? crypto.randomUUID(),
@@ -188,7 +208,11 @@ export function RecipeForm({
     setSaving(true)
     setError('')
     try {
-      if (await onSave(parsed.data, image)) onCancel()
+      if (await onSave(parsed.data, image)) {
+        // Measure the button before the form closes and unmounts it.
+        if (celebrate && button) flyToDeck(button)
+        onCancel()
+      }
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -201,13 +225,26 @@ export function RecipeForm({
     )
   }
   return (
-    <form className="recipeForm" onSubmit={submit} ref={formRef}>
+    <form
+      className="recipeForm"
+      onSubmit={submit}
+      onInput={() => setTouched(true)}
+      ref={formRef}
+    >
+      <Button
+        className="iconButton floatingBack"
+        aria-label="Back to recipes"
+        onClick={leave}
+      >
+        <ArrowLeft size={20} />
+      </Button>
       <h2>
-        {reference
-          ? 'Review recipe facts'
-          : recipe
-            ? 'Edit your recipe'
-            : 'A recipe of your own'}
+        {heading ??
+          (reference
+            ? 'Review recipe facts'
+            : recipe
+              ? 'Edit your recipe'
+              : 'A recipe of your own')}
       </h2>
       <p className="helper">
         {reference
@@ -221,6 +258,7 @@ export function RecipeForm({
           and timing must be reviewed before this can enter a plan.
         </p>
       )}
+      {notice && <p className="notice">{notice}</p>}
       {ai && !aiDraft && (
         <section className="aiPrompt" aria-labelledby="ai-prompt-heading">
           <h3 id="ai-prompt-heading">
@@ -525,7 +563,7 @@ export function RecipeForm({
           </label>
         )}
         <div className="buttonRow">
-          <Button className="secondaryButton" onClick={onCancel}>
+          <Button className="secondaryButton" onClick={leave}>
             Cancel
           </Button>
           <Button className="primaryButton" type="submit">

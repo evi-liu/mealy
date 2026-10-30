@@ -18,6 +18,10 @@ The published yield is initially also the maximum batch size. Review practical e
 
 Unreviewed imports are excluded from shortlists, votes, plans, swaps and grocery arithmetic. Reviewed recipes use the same deterministic scaling as household recipes. Update older app clients before adding reference recipes; older clients intentionally reject the unfamiliar source type rather than stripping it during a save.
 
+### AI remixing (household decision, 2026-10-29)
+
+The household chose to allow **any** recipe to be remixed with AI, including source-linked ones. Remixing a reference recipe sends its stored facts (yield, timing, reviewed ingredients, the original ingredient lines and any unresolved entries) to the configured AI provider through the `recipe-draft` function. The model is told to write any steps in its own words and never reproduce a publisher's wording. A saved remix is the household's own recipe with an AI-drafted label and the source link kept for attribution; the imported recipe is unchanged unless **Replace original** is confirmed. This is a household choice, not a license from either publisher.
+
 `node scripts/collect-tiffy-facts.mjs` reproduces only these ten factual snapshots from Recipe JSON-LD. It has a fixed source list, exact HTTPS host checks on redirects, a timeout and a response-size limit. Collection fails visibly on missing yields/times or unexpected source structure and writes only after every source succeeds. Review the generated diff and rerun recipe-facts tests before publishing changes. This is not a live scraper, scheduled refresh or unrestricted import endpoint.
 
 ## Permission checks

@@ -34,9 +34,13 @@ export type DraftRequest = {
   instruction: string
   base?: DraftBase
   history: string[]
+  /** Remix: the saved recipe. Live mode sends only its id. */
+  original?: Recipe
 }
+/** A model comment; `target` names an ingredient, "step N" or a field. */
+export type DraftNote = { target: string | null; text: string }
 export type DraftResult =
-  { recipe: RecipeDraft; notes: string[] } | { declined: string }
+  { recipe: RecipeDraft; notes: DraftNote[] } | { declined: string }
 export type RecipeAi = {
   demo: boolean
   draft: (request: DraftRequest, signal?: AbortSignal) => Promise<DraftResult>
@@ -66,7 +70,12 @@ const draftSchema = z.object({
   instructions: z.array(z.string().trim().min(1).max(2000)).min(1).max(40),
 })
 const responseSchema = z.union([
-  z.object({ recipe: draftSchema, notes: z.array(z.string()).max(6) }),
+  z.object({
+    recipe: draftSchema,
+    notes: z
+      .array(z.object({ target: z.string().nullable(), text: z.string() }))
+      .max(12),
+  }),
   z.object({ declined: z.string().min(1) }),
 ])
 
@@ -74,8 +83,9 @@ export const liveRecipeAi: RecipeAi = {
   demo: false,
   async draft(request) {
     if (!supabase) throw new Error('Supabase is not configured.')
+    const { original, ...rest } = request
     const { data, error } = await supabase.functions.invoke('recipe-draft', {
-      body: request,
+      body: original ? { ...rest, recipeId: original.id } : rest,
     })
     if (error) {
       const context = (error as { context?: Response }).context
@@ -135,11 +145,15 @@ export const demoRecipeAi: RecipeAi = {
         reject(new DOMException('Aborted', 'AbortError'))
       })
     })
+    if (request.original && !request.base) return demoRemix(request.original)
     if (!request.base)
       return {
         recipe: demoRecipe,
         notes: [
-          'Demo mode: this is a canned example, not generated from your description.',
+          {
+            target: null,
+            text: 'Demo mode: this is a canned example, not generated from your description.',
+          },
         ],
       }
     const base = draftSchema.safeParse(request.base)
@@ -165,9 +179,62 @@ export const demoRecipeAi: RecipeAi = {
           },
       notes: [
         hasLemon
-          ? 'Demo mode: your request is not interpreted, so nothing changed.'
-          : 'Demo mode: added a lemon as an example change; your request is not interpreted.',
+          ? {
+              target: null,
+              text: 'Demo mode: your request is not interpreted, so nothing changed.',
+            }
+          : {
+              target: 'lemon',
+              text: 'Demo mode: added a lemon as an example change; your request is not interpreted.',
+            },
       ],
     }
   },
+}
+
+// A first demo remix makes one of each kind of change so the highlights can
+// be explored without a model.
+function demoRemix(original: Recipe): DraftResult {
+  const [first, ...rest] = original.ingredients
+  const removed = rest.length > 1 ? rest.at(-1) : undefined
+  const kept = removed ? rest.slice(0, -1) : rest
+  const step = original.instructions.length
+    ? 'Scatter the fresh herbs over just before serving.'
+    : 'Cook as you usually would, then scatter the fresh herbs over before serving.'
+  const recipe = draftSchema.safeParse({
+    ...original,
+    ingredients: [
+      ...(first
+        ? [{ ...first, amount: Math.round(first.amount * 15) / 10 }]
+        : []),
+      ...kept,
+      { name: 'fresh herbs', amount: 15, unit: 'g', category: 'Produce' },
+    ],
+    instructions: [...original.instructions, step],
+  })
+  if (!recipe.success)
+    return {
+      declined:
+        'Demo mode cannot remix this recipe until its ingredient amounts are reviewed.',
+    }
+  return {
+    recipe: recipe.data,
+    notes: [
+      {
+        target: null,
+        text: 'Demo mode: example changes only; your request is not interpreted.',
+      },
+      ...(first
+        ? [{ target: first.name, text: 'Demo: increased by half.' }]
+        : []),
+      ...(removed
+        ? [{ target: removed.name, text: 'Demo: removed as an example.' }]
+        : []),
+      { target: 'fresh herbs', text: 'Demo: added for freshness.' },
+      {
+        target: `step ${recipe.data.instructions.length}`,
+        text: 'Demo: new finishing step.',
+      },
+    ],
+  }
 }

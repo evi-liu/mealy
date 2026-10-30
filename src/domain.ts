@@ -97,6 +97,7 @@ export const recipeSchema = z
       .object({
         createdAt: z.iso.datetime(),
         prompts: z.array(z.string().max(500)).max(20),
+        derivedFrom: text.optional(),
       })
       .optional(),
     ingredients: z.array(ingredientSchema).min(1).max(60),
@@ -193,6 +194,7 @@ export type EventKind =
   | 'unblock'
   | 'cooked'
   | 'loved'
+  | 'unloved'
   | 'plan'
   | 'swap'
   | 'pin'
@@ -516,6 +518,53 @@ export function decide(
   }
 }
 
+/**
+ * A remix saved from a planned recipe takes over that plan slot, pinned and
+ * liked, when it can still cover the slot's servings. Groceries must then be
+ * confirmed again. Returns null when it does not fit.
+ */
+export function placeRemix(
+  state: State,
+  slotIndex: number,
+  originalId: string,
+  recipe: Recipe,
+): State | null {
+  const slot = state.plan[slotIndex]
+  if (!slot || slot.recipeId !== originalId || !recipeReady(recipe)) return null
+  const fits =
+    recipe.maxServings >= slot.servings &&
+    (slot.role === 'kairos'
+      ? recipe.potluck
+      : slot.servings <= 2 || recipe.leftovers)
+  if (!fits) return null
+  return {
+    ...state,
+    plan: state.plan.map((p, i) =>
+      i === slotIndex ? { ...p, recipeId: recipe.id, pinned: true } : p,
+    ),
+    decisions: { ...state.decisions, [recipe.id]: 'like' },
+    confirmed: false,
+    checked: [],
+  }
+}
+
+/** Loved is a durable preference the household can take back. */
+export function toggleLoved(
+  state: State,
+  recipeId: string,
+): { state: State; event: ChangeEvent } {
+  const loved = state.loved.includes(recipeId)
+  return {
+    state: {
+      ...state,
+      loved: loved
+        ? state.loved.filter((id) => id !== recipeId)
+        : [...state.loved, recipeId],
+    },
+    event: { kind: loved ? 'unloved' : 'loved', recipeId },
+  }
+}
+
 export function undo(state: State): State {
   const id = state.history.at(-1)
   if (!id) return state
@@ -544,6 +593,16 @@ export function newWeek(state: State): State {
 
 export const displayAmount = (value: number) =>
   Number((Math.ceil((value - 1e-8) * 10) / 10).toFixed(1)).toLocaleString()
+
+/** A recipe amount shown in the household's chosen unit system. */
+export function recipeQuantity(
+  amount: number,
+  unit: Ingredient['unit'],
+  system: UnitSystem,
+): string {
+  const base = canonical(amount, unit)
+  return groceryQuantity(base.amount, base.unit, system)
+}
 
 export function groceryQuantity(
   value: number,

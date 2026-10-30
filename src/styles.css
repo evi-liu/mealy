@@ -44,11 +44,17 @@ select {
   min-height: 44px;
 }
 button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
+input[type='checkbox']:focus-visible {
   outline: 3px solid #a9432e;
   outline-offset: 3px;
+}
+/* Text fields get a quieter focus: a darker border and a soft ring. */
+input:not([type='checkbox']):focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--olive);
+  box-shadow: 0 0 0 3px #56634433;
 }
 input,
 textarea,
@@ -1152,14 +1158,14 @@ h1[tabindex='-1']:focus {
   flex: 1;
   min-width: 0;
   min-height: 44px;
+  padding: 11px 12px;
   resize: none;
-  /* 16px keeps iOS Safari from zooming in on focus. */
-  font-size: 16px;
-  line-height: 1.35;
+  font-size: 14px;
+  line-height: 1.4;
 }
-.promptBar.sticky textarea {
-  padding: 10px 12px;
-  white-space: pre-wrap;
+.promptBar textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 .promptBar .promptSend {
   min-height: 44px;
@@ -1209,4 +1215,124 @@ h1[tabindex='-1']:focus {
   from {
     translate: 0 14px;
   }
+}
+.detailActions {
+  margin: 12px 0 4px;
+}
+.remixBanner .buttonRow {
+  margin-top: 10px;
+}
+.changeList {
+  padding-left: 22px;
+}
+.changeList li {
+  margin: 4px 0;
+  padding: 3px 6px;
+  border-radius: 8px;
+}
+ul.changeList {
+  list-style: none;
+  padding-left: 0;
+}
+.chg-added {
+  background: #56634422;
+}
+.chg-changed {
+  background: #c9a87740;
+}
+.chg-removed {
+  color: var(--muted);
+  list-style: none;
+}
+.chg-removed del {
+  text-decoration-color: var(--tomato);
+}
+.changeTag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.chg-added .changeTag {
+  color: var(--olive);
+}
+.chg-removed .changeTag {
+  color: var(--tomato);
+}
+.wasValue,
+.aiNote {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+.aiNote {
+  color: var(--olive);
+}
+.promptBar.quiet {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.promptBar.quiet .promptSend {
+  border: 1px solid var(--line);
+  background: var(--white);
+  color: var(--olive);
+}
+/* Shares the heading's line, then stays in reach while the form scrolls. */
+.floatingBack {
+  position: sticky;
+  z-index: 4;
+  top: calc(env(safe-area-inset-top) + 10px);
+  width: 44px;
+  height: 44px;
+  margin-bottom: -44px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+.floatingBack + h2 {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 0;
+  padding-left: 56px;
+}
+/* A mini recipe card thrown into the Recipes tab when pinning. */
+.deckGhost {
+  position: fixed;
+  z-index: 40;
+  width: 44px;
+  height: 56px;
+  border: 1px solid var(--line);
+  border-top: 12px solid var(--olive);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 6px 14px #30291f2e;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.loveHeart {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+.loveRing {
+  position: absolute;
+  inset: -3px;
+  border: 2px solid var(--tomato);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.ingredientsHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
 }

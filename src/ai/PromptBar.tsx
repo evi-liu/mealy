@@ -8,6 +8,7 @@ export function PromptBar({
   submitLabel,
   pending,
   sticky = false,
+  quiet = false,
   onSubmit,
 }: {
   label: string
@@ -15,6 +16,8 @@ export function PromptBar({
   submitLabel: string
   pending: boolean
   sticky?: boolean
+  /** Secondary styling, for when drafting is not the screen's main action. */
+  quiet?: boolean
   onSubmit: (text: string) => Promise<boolean>
 }) {
   const [value, setValue] = useState('')
@@ -24,13 +27,15 @@ export function PromptBar({
     if (await onSubmit(text)) setValue('')
   }
   return (
-    <div className={`promptBar${sticky ? ' sticky' : ''}`}>
+    <div
+      className={`promptBar${sticky ? ' sticky' : ''}${quiet ? ' quiet' : ''}`}
+    >
       <textarea
         aria-label={label}
         placeholder={placeholder}
         value={value}
         maxLength={500}
-        rows={sticky ? 1 : 3}
+        rows={sticky ? 1 : quiet ? 2 : 3}
         readOnly={pending}
         aria-busy={pending}
         enterKeyHint="send"

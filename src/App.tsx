@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@base-ui/react/button'
 import { Switch } from '@base-ui/react/switch'
-import { Dialog } from '@base-ui/react/dialog'
 import {
   ArrowLeft,
   ArrowRight,
@@ -35,8 +34,10 @@ import {
   normalize,
   recipeSchema,
   recipeReady,
+  placeRemix,
   shortlist,
   targets,
+  toggleLoved,
   undo,
   weekKey,
   type Recipe,
@@ -55,7 +56,10 @@ import { RecipeForm } from './RecipeForm'
 import { Bookmarks } from './Bookmarks'
 import { useGroceryUnits } from './useGroceryUnits'
 import { useFlingCard } from './motion/useFlingCard'
+import { flyToDeck } from './motion/flyToDeck'
 import { demoRecipeAi, liveRecipeAi, type RecipeAi } from './ai/recipeAi'
+import { RecipeArt } from './RecipeArt'
+import { LovedButton, RecipeDetails, type RemixSave } from './RecipeDetails'
 
 const tabs = ['plan', 'groceries', 'pantry', 'recipes'] as const
 type Tab = (typeof tabs)[number]
@@ -280,191 +284,6 @@ function Setup({
         )}
       </footer>
     </main>
-  )
-}
-
-function RecipeArt({
-  recipe,
-  household,
-  compact = false,
-}: {
-  recipe: Recipe
-  household?: string | null
-  compact?: boolean
-}) {
-  const [url, setUrl] = useState('')
-  const [error, setError] = useState('')
-  useEffect(() => {
-    let active = true
-    setUrl('')
-    setError('')
-    if (recipe.imagePath && supabase && household) {
-      void supabase.storage
-        .from('recipe-images')
-        .createSignedUrl(recipe.imagePath, 3600)
-        .then(({ data, error }) => {
-          if (active) {
-            if (error) setError('Photo unavailable')
-            else setUrl(data.signedUrl)
-          }
-        })
-        .catch(() => {
-          if (active) setError('Photo unavailable')
-        })
-    }
-    return () => {
-      active = false
-    }
-  }, [recipe.imagePath, household])
-  return (
-    <div
-      className={`recipeArt tone${recipe.title.length % 4}${compact ? ' recipeThumb' : ''}`}
-    >
-      {url ? (
-        <img
-          src={url}
-          alt={recipe.title}
-          onError={() => {
-            setUrl('')
-            setError('Photo unavailable')
-          }}
-        />
-      ) : (
-        <>
-          <div className="illustratedPlate">
-            <CookingPot size={compact ? 24 : 65} strokeWidth={1} />
-          </div>
-          {(!compact || error) && (
-            <small>{error || 'A little kitchen illustration'}</small>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
-function RecipeDetails({
-  recipe,
-  household,
-  servings,
-  close,
-}: {
-  recipe: Recipe
-  household?: string | null
-  servings?: number
-  close: () => void
-}) {
-  const scale = (servings ?? recipe.servings) / recipe.servings
-  return (
-    <Dialog.Root
-      open
-      onOpenChange={(open) => {
-        if (!open) close()
-      }}
-    >
-      <Dialog.Portal>
-        <Dialog.Backdrop className="dialogBackdrop" />
-        <Dialog.Popup className="dialogPopup">
-          <Dialog.Title>{recipe.title}</Dialog.Title>
-          <Dialog.Description>
-            {recipe.source === 'demo'
-              ? 'Illustrative demo, not a tested cooking recipe.'
-              : recipe.aiDraft
-                ? 'Your household recipe, drafted with AI and reviewed by you. Not kitchen-tested.'
-                : recipe.source === 'reference'
-                  ? 'Source-linked recipe facts. Cooking directions remain on the original website.'
-                  : 'Your household recipe.'}
-          </Dialog.Description>
-          <Dialog.Close className="dialogClose" aria-label="Close recipe">
-            <X size={20} />
-          </Dialog.Close>
-          <RecipeArt recipe={recipe} household={household} />
-          <p>{recipe.description}</p>
-          {recipe.sourceUrl && (
-            <p className="helper">
-              Source reference:{' '}
-              <a
-                href={recipe.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {sourceName(recipe.sourceUrl)}
-              </a>
-              {recipe.source === 'reference'
-                ? '. Factual quantities, yield and timing were imported; no directions or photos were copied.'
-                : '. Recipe details below were entered by your household, not imported.'}
-            </p>
-          )}
-          <p>
-            <strong>{servings ?? recipe.servings} servings</strong> ·{' '}
-            {recipe.minutes} min for original batch · {scale.toFixed(2)}x
-            quantities
-          </p>
-          <p className="helper">
-            Cooking time and equipment may change with batch size. Refrigerate
-            leftovers promptly; freeze portions that will not be eaten within
-            3-4 days.
-          </p>
-          <h3>Ingredients</h3>
-          <ul>
-            {recipe.ingredients.map((i, index) => (
-              <li key={index}>
-                {displayAmount(i.amount * scale)} {i.unit} {i.name}
-              </li>
-            ))}
-          </ul>
-          {recipe.facts?.needsReview && (
-            <>
-              <h3>Review before planning</h3>
-              <p>
-                Confirm the ingredients, your practical batch size and leftover
-                suitability.
-              </p>
-              <ul>
-                {recipe.facts.pendingIngredients.map((item, index) => (
-                  <li key={index}>
-                    {item.sourceText} — {item.reason}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          {recipe.facts && (
-            <details>
-              <summary>Original ingredient facts</summary>
-              <p className="helper">
-                Source snapshot:{' '}
-                {new Date(recipe.facts.retrievedAt).toLocaleDateString()}
-              </p>
-              <ul>
-                {recipe.facts.ingredientLines.map((line, index) => (
-                  <li key={index}>{line}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-          {recipe.source === 'reference' && recipe.sourceUrl ? (
-            <a
-              className="secondaryButton"
-              href={recipe.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Read cooking directions on {sourceName(recipe.sourceUrl)}
-            </a>
-          ) : (
-            <>
-              <h3>Method</h3>
-              <ol>
-                {recipe.instructions.map((step, index) => (
-                  <li key={index}>{step}</li>
-                ))}
-              </ol>
-            </>
-          )}
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
   )
 }
 
@@ -717,7 +536,7 @@ function Swipe({
       <div className="setupFooter">
         <Button
           className="primaryButton"
-          disabled={!canBuild}
+          disabled={!canBuild || card.phase === 'flying'}
           onClick={() =>
             void change(
               (s) => ({
@@ -753,7 +572,7 @@ function Plan({
 }: {
   state: State
   change: HouseholdStore['change']
-  details: (recipe: Recipe, servings?: number) => void
+  details: (recipe: Recipe, servings?: number, slot?: number) => void
   openGroceries: () => void
   household?: string | null
 }) {
@@ -802,7 +621,7 @@ function Plan({
               <Button
                 className="plannedRecipeOpen"
                 aria-label={`View ${recipe.title}`}
-                onClick={() => details(recipe, slot.servings)}
+                onClick={() => details(recipe, slot.servings, index)}
               >
                 <RecipeArt recipe={recipe} household={household} compact />
                 <span className="plannedRecipeCopy">
@@ -824,42 +643,33 @@ function Plan({
                   className={`textButton pinRecipe ${slot.pinned ? 'pinned' : ''}`}
                   aria-label={`${slot.pinned ? 'Unpin' : 'Pin'} ${recipe.title}`}
                   aria-pressed={slot.pinned}
-                  onClick={() =>
-                    void change(
-                      (s) => ({
-                        ...s,
-                        plan: s.plan.map((p, i) =>
-                          i === index ? { ...p, pinned: !p.pinned } : p,
-                        ),
-                      }),
-                      { kind: 'pin', recipeId: recipe.id },
+                  onClick={async (e) => {
+                    const button = e.currentTarget
+                    if (
+                      (await change(
+                        (s) => ({
+                          ...s,
+                          plan: s.plan.map((p, i) =>
+                            i === index ? { ...p, pinned: !p.pinned } : p,
+                          ),
+                        }),
+                        { kind: 'pin', recipeId: recipe.id },
+                      )) &&
+                      !slot.pinned
                     )
-                  }
+                      flyToDeck(button)
+                  }}
                 >
-                  <Pin size={14} />
-                  {slot.pinned ? 'Pinned' : 'Pin'}
+                  <Pin size={14} fill={slot.pinned ? 'currentColor' : 'none'} />
+                  {slot.pinned ? 'Unpin' : 'Pin'}
                 </Button>
-                <Button
-                  className="textButton"
-                  disabled={state.loved.includes(recipe.id)}
-                  onClick={() =>
-                    void change(
-                      (s) => ({
-                        ...s,
-                        loved: [...new Set([...s.loved, recipe.id])],
-                      }),
-                      { kind: 'loved', recipeId: recipe.id },
-                    )
-                  }
-                >
-                  <Heart
-                    size={15}
-                    fill={
-                      state.loved.includes(recipe.id) ? 'currentColor' : 'none'
-                    }
-                  />
-                  {state.loved.includes(recipe.id) ? 'Loved' : 'We loved this'}
-                </Button>
+                <LovedButton
+                  loved={state.loved.includes(recipe.id)}
+                  onToggle={() => {
+                    const { event } = toggleLoved(state, recipe.id)
+                    return change((s) => toggleLoved(s, recipe.id).state, event)
+                  }}
+                />
               </div>
             </article>
           )
@@ -1145,15 +955,33 @@ function Recipes({
   live,
   ai,
   details,
+  remix,
+  clearRemix,
 }: {
   store: HouseholdStore
   live: boolean
   ai: RecipeAi
   details: (recipe: Recipe) => void
+  remix: RemixSave | null
+  clearRemix: () => void
 }) {
   const state = store.state!
   const [editing, setEditing] = useState<Recipe | 'new' | null>(null)
   const [fromBookmark, setFromBookmark] = useState<Bookmark | undefined>()
+  // The saved version this edit replaces; a changed baseline means another
+  // phone edited it meanwhile.
+  const [baseline, setBaseline] = useState<Recipe | null>(null)
+  const [reviewingRemix, setReviewingRemix] = useState(false)
+  const [remixSlot, setRemixSlot] = useState<RemixSave['slot']>()
+  useEffect(() => {
+    if (!remix) return
+    setFromBookmark(undefined)
+    setEditing(remix.recipe)
+    setBaseline(remix.original ?? null)
+    setReviewingRemix(true)
+    setRemixSlot(remix.slot)
+    clearRemix()
+  }, [remix, clearRemix])
   async function save(recipe: Recipe, image?: File) {
     let uploaded: string | undefined
     if (image && supabase && store.household) {
@@ -1174,22 +1002,28 @@ function Recipes({
     const saved = await store.change(
       (s) => {
         if (
-          editing &&
-          editing !== 'new' &&
-          JSON.stringify(s.recipes.find((r) => r.id === editing.id)) !==
-            JSON.stringify(editing)
+          baseline &&
+          JSON.stringify(s.recipes.find((r) => r.id === baseline.id)) !==
+            JSON.stringify(baseline)
         ) {
           throw new Error(
             'This recipe changed on the other phone while you were editing. Cancel and reopen it to see the latest version; your draft has not been saved.',
           )
         }
         const inPlan = s.plan.some((slot) => slot.recipeId === recipe.id)
-        return {
+        const next = {
           ...s,
           recipes: [
             ...s.recipes.filter((r) => r.id !== recipe.id),
             recipeSchema.parse(recipe),
           ],
+        }
+        const placed =
+          remixSlot &&
+          placeRemix(next, remixSlot.index, remixSlot.recipeId, recipe)
+        if (placed) return placed
+        return {
+          ...next,
           ...(inPlan
             ? {
                 plan: [],
@@ -1232,9 +1066,19 @@ function Recipes({
           bookmark={fromBookmark}
           live={live}
           ai={editing === 'new' && !fromBookmark ? ai : undefined}
+          heading={reviewingRemix ? 'Review your remix' : undefined}
+          celebrate={editing === 'new' || reviewingRemix}
+          notice={
+            remixSlot
+              ? `Saving puts this remix in this week's plan in place of “${remixSlot.title}”, pinned, as long as it still covers that recipe's servings. You'll confirm the grocery list again.`
+              : undefined
+          }
           onCancel={() => {
+            setRemixSlot(undefined)
             setEditing(null)
             setFromBookmark(undefined)
+            setBaseline(null)
+            setReviewingRemix(false)
           }}
           onSave={save}
         />
@@ -1244,6 +1088,7 @@ function Recipes({
             className="primaryButton"
             onClick={() => {
               setFromBookmark(undefined)
+              setBaseline(null)
               setEditing('new')
             }}
           >
@@ -1280,7 +1125,10 @@ function Recipes({
                 {recipe.source !== 'demo' && (
                   <Button
                     className="textButton"
-                    onClick={() => setEditing(recipe)}
+                    onClick={() => {
+                      setBaseline(recipe)
+                      setEditing(recipe)
+                    }}
                   >
                     {recipe.facts?.needsReview ? 'Review details' : 'Edit'}
                   </Button>
@@ -1301,23 +1149,16 @@ function Recipes({
                     Recommend again
                   </Button>
                 )}
-                <Button
-                  className="textButton"
-                  disabled={state.loved.includes(recipe.id)}
-                  onClick={() =>
-                    void store.change(
-                      (s) => ({
-                        ...s,
-                        loved: [...new Set([...s.loved, recipe.id])],
-                      }),
-                      { kind: 'loved', recipeId: recipe.id },
+                <LovedButton
+                  loved={state.loved.includes(recipe.id)}
+                  onToggle={() => {
+                    const { event } = toggleLoved(state, recipe.id)
+                    return store.change(
+                      (s) => toggleLoved(s, recipe.id).state,
+                      event,
                     )
-                  }
-                >
-                  {state.loved.includes(recipe.id)
-                    ? 'Loved favorite'
-                    : 'Mark as loved'}
-                </Button>
+                  }}
+                />
               </div>
             </article>
           ))}
@@ -1326,6 +1167,7 @@ function Recipes({
             change={store.change}
             onManual={(bookmark) => {
               setFromBookmark(bookmark)
+              setBaseline(null)
               setEditing('new')
             }}
           />
@@ -1342,7 +1184,11 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
   const [detail, setDetail] = useState<{
     recipe: Recipe
     servings?: number
+    slot?: number
   } | null>(null)
+  const [remix, setRemix] = useState<RemixSave | null>(null)
+  const clearRemix = useCallback(() => setRemix(null), [])
+  const ai = mode === 'live' ? liveRecipeAi : demoRecipeAi
   const headingRef = useRef<HTMLDivElement>(null)
   function navigate(tab: Tab) {
     window.location.hash = tab
@@ -1361,8 +1207,8 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
       heading.focus({ preventScroll: true })
     }
   }, [tab, state?.phase])
-  const details = (recipe: Recipe, servings?: number) =>
-    setDetail({ recipe, servings })
+  const details = (recipe: Recipe, servings?: number, slot?: number) =>
+    setDetail({ recipe, servings, slot })
   return (
     <div className="appShell" ref={headingRef}>
       <div className={`modeBar ${mode}`}>
@@ -1448,8 +1294,10 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
               <Recipes
                 store={store}
                 live={mode === 'live'}
-                ai={mode === 'live' ? liveRecipeAi : demoRecipeAi}
+                ai={ai}
                 details={details}
+                remix={remix}
+                clearRemix={clearRemix}
               />
             )}
             <div className="weekAction">
@@ -1480,6 +1328,7 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
                 <Button
                   key={item}
                   aria-current={tab === item ? 'page' : undefined}
+                  data-deck-target={item === 'recipes' ? '' : undefined}
                   onClick={() => navigate(item)}
                 >
                   <Icon size={21} />
@@ -1498,11 +1347,21 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
           </nav>
         </>
       )}
-      {detail && (
+      {detail && state && (
         <RecipeDetails
           recipe={detail.recipe}
           servings={detail.servings}
+          slot={detail.slot}
+          state={state}
+          change={store.change}
+          ai={ai}
           household={store.household}
+          storeError={store.error}
+          saveRemix={(save) => {
+            setDetail(null)
+            setRemix(save)
+            navigate('recipes')
+          }}
           close={() => setDetail(null)}
         />
       )}

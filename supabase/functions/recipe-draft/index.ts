@@ -39,9 +39,13 @@ const draftSchema = z.object({
     .max(60),
   instructions: z.array(z.string().trim().min(1).max(2000)).min(1).max(40),
 })
+const noteSchema = z.object({
+  target: z.string().max(200).nullable(),
+  text: z.string().max(300),
+})
 const resultSchema = z.object({
   recipe: z.unknown(),
-  notes: z.array(z.string().max(300)).max(6),
+  notes: z.array(noteSchema).max(12),
   declined: z.string().max(300).nullable(),
 })
 // The base is the household's unsaved form, so it may be incomplete.
@@ -72,6 +76,8 @@ const requestSchema = z.object({
     .partial()
     .optional(),
   history: z.array(z.string().max(500)).max(10).default([]),
+  // Remix: the saved recipe is loaded server-side, never trusted from the client.
+  recipeId: z.string().min(1).max(200).optional(),
 })
 
 const string = { type: 'string' }
@@ -122,7 +128,18 @@ const jsonSchema = {
         instructions: { type: 'array', items: string },
       },
     },
-    notes: { type: 'array', items: string },
+    notes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['target', 'text'],
+        properties: {
+          target: { type: ['string', 'null'] },
+          text: string,
+        },
+      },
+    },
     declined: { type: ['string', 'null'] },
   },
 }
@@ -137,8 +154,9 @@ Rules:
 - Categories: Produce, Protein, Dairy, Pantry, Other.
 - Leftovers become lunches, so prefer dishes that reheat well and mark leftovers accordingly. maxServings is a realistic batch on ordinary home equipment, at least servings.
 - Give clear, safe steps (e.g. cook poultry to 74°C / 165°F). Do not claim the recipe was tested.
-- notes: up to 4 short sentences on what you chose or changed, mentioning anything the household should double-check.
-- If the request is not a food recipe, is unsafe, or would turn the dish into something unrelated to the base, set "declined" to a short, friendly reason and return the base unchanged (or a minimal valid recipe when there is no base). Otherwise "declined" is null.`
+- notes: up to 4 short notes on what you chose or changed, mentioning anything the household should double-check. Use a null target unless remixing.
+- If the request is not a food recipe, is unsafe, or would turn the dish into something unrelated to the base, set "declined" to a short, friendly reason and return the base unchanged (or a minimal valid recipe when there is no base). Otherwise "declined" is null.
+Remix: when the input has "original" (the household's saved recipe), you are remixing it. Without a base, start from the original. Make the requested changes and keep the dish recognizably itself; do not make unrequested changes beyond what the request needs (e.g. adjusting cooking time for a swapped protein). "original.sourceLines" are the source's ingredient lines and "original.unresolved" lists ingredients whose amounts the household has not confirmed yet; use them as context and choose sensible amounts. If the original has no steps, write concise steps in your own words; never reproduce a publisher's wording. In remix mode give up to 10 notes, one per meaningful change, each with a target: the affected ingredient name exactly as written in your recipe (or the original name for a removed ingredient), "step N" (1-based, in your recipe), or a field name (title, description, servings, maxServings, minutes, protein, leftovers, potluck). Use a null target for a general note.`
 
 Deno.serve(async (req: Request) => {
   const allowedOrigin = Deno.env.get('APP_ORIGIN')
@@ -199,6 +217,67 @@ Deno.serve(async (req: Request) => {
       return respond(429, {
         error: 'AI drafting limit reached. Try again in an hour.',
       })
+    let original: unknown
+    if (request.recipeId) {
+      const stored = await client
+        .from('household_state')
+        .select('data')
+        .eq('household_id', membership.data)
+        .single()
+      if (stored.error) throw stored.error
+      const recipe = z
+        .array(
+          z.object({
+            id: z.string(),
+            title: z.string(),
+            description: z.string(),
+            servings: z.number(),
+            maxServings: z.number(),
+            minutes: z.number(),
+            protein: z.string(),
+            leftovers: z.boolean(),
+            potluck: z.boolean(),
+            ingredients: z.array(z.unknown()),
+            instructions: z.array(z.string()),
+            facts: z
+              .object({
+                ingredientLines: z.array(z.string()),
+                pendingIngredients: z.array(
+                  z.object({ name: z.string(), sourceText: z.string() }),
+                ),
+              })
+              .optional(),
+          }),
+        )
+        .parse(stored.data.data.recipes)
+        .find((r) => r.id === request.recipeId)
+      if (!recipe)
+        return respond(404, {
+          error: 'That recipe changed or was removed. Reopen it and try again.',
+        })
+      original = {
+        title: recipe.title,
+        description: recipe.description,
+        servings: recipe.servings,
+        maxServings: recipe.maxServings,
+        minutes: recipe.minutes,
+        protein: recipe.protein,
+        leftovers: recipe.leftovers,
+        potluck: recipe.potluck,
+        ingredients: recipe.ingredients,
+        instructions: recipe.instructions,
+        ...(recipe.facts
+          ? {
+              sourceLines: recipe.facts.ingredientLines,
+              unresolved: recipe.facts.pendingIngredients.map((item) => ({
+                name: item.name,
+                sourceText: item.sourceText,
+              })),
+            }
+          : {}),
+      }
+    }
+    const { recipeId: _recipeId, ...input } = request
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -211,7 +290,7 @@ Deno.serve(async (req: Request) => {
         store: false,
         max_output_tokens: 6000,
         instructions,
-        input: JSON.stringify(request),
+        input: JSON.stringify(original ? { ...input, original } : input),
         text: {
           format: {
             type: 'json_schema',
