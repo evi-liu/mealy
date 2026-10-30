@@ -79,6 +79,27 @@ const responseSchema = z.union([
   z.object({ declined: z.string().min(1) }),
 ])
 
+/**
+ * A friendly message for a failed function call. Only HTTP errors carry a
+ * response; network and relay failures (such as a function that was never
+ * deployed) carry other context, which must not be read as JSON.
+ */
+export async function draftErrorMessage(error: unknown): Promise<string> {
+  const context = (error as { context?: unknown } | null)?.context
+  const response =
+    context && typeof (context as Response).json === 'function'
+      ? (context as Response)
+      : undefined
+  if (!response)
+    return "Couldn't reach AI drafting. It may not be set up yet, or you may be offline. Your recipe hasn't changed."
+  const body: unknown = await response.json().catch(() => undefined)
+  const message = (body as { error?: unknown } | undefined)?.error
+  if (typeof message === 'string') return message
+  if (response.status === 404)
+    return "AI drafting isn't set up yet. Your recipe hasn't changed."
+  return "AI drafting is unavailable right now. Your recipe hasn't changed."
+}
+
 export const liveRecipeAi: RecipeAi = {
   demo: false,
   async draft(request) {
@@ -87,18 +108,7 @@ export const liveRecipeAi: RecipeAi = {
     const { data, error } = await supabase.functions.invoke('recipe-draft', {
       body: original ? { ...rest, recipeId: original.id } : rest,
     })
-    if (error) {
-      const context = (error as { context?: Response }).context
-      const body = await context
-        ?.json()
-        .then((value: { error?: unknown }) => value)
-        .catch(() => undefined)
-      throw new Error(
-        typeof body?.error === 'string'
-          ? body.error
-          : 'AI drafting is unavailable right now. You can still enter the recipe yourself.',
-      )
-    }
+    if (error) throw new Error(await draftErrorMessage(error))
     const parsed = responseSchema.safeParse(data)
     if (!parsed.success)
       throw new Error(
