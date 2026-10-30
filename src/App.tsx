@@ -1521,7 +1521,7 @@ function Kitchen({ exit }: { exit: () => void }) {
                 catalog={catalog}
               />
             )}
-            {tab !== 'profile' && tab !== 'pantry' && (
+            {tab === 'plan' && (
               <div className="weekAction">
                 <Button
                   className="textButton"

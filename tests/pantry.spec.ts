@@ -50,7 +50,14 @@ test('checking off a grocery stocks the pantry and unchecking takes it back', as
     page.locator('.groceryItem').nth(1).getByRole('checkbox'),
   ).toBeChecked()
 
-  // A fresh week keeps the pantry.
+  // Only Plan can start a fresh week; it keeps the pantry.
+  for (const tab of ['Groceries', 'Pantry', 'Recipes', 'Profile']) {
+    await page.getByRole('button', { name: tab, exact: true }).click()
+    await expect(
+      page.getByRole('button', { name: 'Start a fresh week' }),
+    ).toHaveCount(0)
+  }
+  await page.getByRole('button', { name: 'Plan', exact: true }).click()
   await page.getByRole('button', { name: 'Start a fresh week' }).click()
   await page
     .getByRole('alertdialog')
