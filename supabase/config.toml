@@ -19,3 +19,6 @@ verify_jwt = false
 
 [functions.catalog-import]
 verify_jwt = false
+
+[functions.source-check]
+verify_jwt = false

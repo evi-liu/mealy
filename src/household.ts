@@ -1,4 +1,5 @@
 import { supabase } from './store'
+import { draftErrorMessage } from './ai/recipeAi'
 
 export type Member = {
   email: string
@@ -125,6 +126,16 @@ export const householdApi = {
       .order('added_at')
     if (error) throw new Error(error.message)
     return (data ?? []).map((row) => row.domain as string)
+  },
+  /** Asks the server whether a site's robots.txt lets the importer in. */
+  async checkSource(
+    url: string,
+  ): Promise<{ domain: string; allowed: boolean; reason: string | null }> {
+    const { data, error } = await client().functions.invoke('source-check', {
+      body: { url },
+    })
+    if (error) throw new Error(await draftErrorMessage(error))
+    return data
   },
   addSource: (url: string) => call<string>('add_source', { p_url: url }),
   removeSource: (domain: string) =>

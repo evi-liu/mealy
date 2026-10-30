@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { refusal, robotsPolicy } from '../_shared/robots.ts'
 
 // Importer for the private recipe catalog. Called hourly by pg_cron. For each
 // site any household follows, it preloads up to its preload limit in small
@@ -65,62 +66,12 @@ async function fetchText(url: string, source: Source): Promise<string> {
 
 type Entry = { url: string; lastmod: string | null }
 
-/**
- * The site's robots.txt rules for this importer: the group naming
- * MealyHouseholdPlanner if there is one, otherwise the "*" group. Longest
- * matching rule wins; Allow wins ties. A missing file allows everything.
- */
-async function robotsRules(source: Source) {
-  let text = ''
+/** The site's robots.txt policy; a missing or unreachable file allows all. */
+async function sitePolicy(source: Source) {
   try {
-    text = await fetchText(`https://${source}/robots.txt`, source)
+    return robotsPolicy(await fetchText(`https://${source}/robots.txt`, source))
   } catch {
-    return () => true
-  }
-  const groups: { agents: string[]; rules: [boolean, string][] }[] = []
-  let current: (typeof groups)[number] | null = null
-  let inAgents = false
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/#.*/, '').trim()
-    const match = /^(user-agent|allow|disallow)\s*:\s*(.*)$/i.exec(line)
-    if (!match) continue
-    const field = match[1].toLowerCase()
-    const value = match[2].trim()
-    if (field === 'user-agent') {
-      if (!current || !inAgents) {
-        current = { agents: [], rules: [] }
-        groups.push(current)
-      }
-      current.agents.push(value.toLowerCase())
-      inAgents = true
-    } else if (current) {
-      inAgents = false
-      if (value) current.rules.push([field === 'allow', value])
-    }
-  }
-  // Rules naming this importer win; otherwise every "*" group applies.
-  const named = groups.filter((g) =>
-    g.agents.some((a) => a !== '*' && 'mealyhouseholdplanner'.startsWith(a)),
-  )
-  const rules = (
-    named.length ? named : groups.filter((g) => g.agents.includes('*'))
-  ).flatMap((g) => g.rules)
-  const pattern = (rule: string) =>
-    new RegExp(
-      '^' +
-        rule
-          .split('*')
-          .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
-          .join('.*')
-          .replace(/\\\$$/, '$'),
-    )
-  return (path: string) => {
-    let best: [boolean, number] = [true, -1]
-    for (const [allow, rule] of rules) {
-      const longer = rule.length > best[1] || (rule.length === best[1] && allow)
-      if (longer && pattern(rule).test(path)) best = [allow, rule.length]
-    }
-    return best[0]
+    return robotsPolicy('')
   }
 }
 
@@ -327,14 +278,16 @@ Deno.serve(async (req: Request) => {
         summary[source] = { skipped: 'checked this week' }
         continue
       }
-      const allowed = await robotsRules(source)
-      if (!allowed('/')) {
-        summary[source] = { skipped: 'robots.txt disallows this importer' }
+      const policy = await sitePolicy(source)
+      const refused = refusal(policy)
+      if (refused) {
+        summary[source] = { skipped: refused }
         continue
       }
-      const entries = (await sitemapEntries(source)).filter((entry) =>
-        allowed(new URL(entry.url).pathname),
-      )
+      const entries = (await sitemapEntries(source)).filter((entry) => {
+        const url = new URL(entry.url)
+        return policy.allows(url.pathname + url.search)
+      })
       const { data: seenRows } = await admin
         .from('catalog_pages')
         .select('url')
