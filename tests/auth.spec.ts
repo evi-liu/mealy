@@ -39,10 +39,11 @@ test('failed live saves show an error without local success or household storage
 }) => {
   kitchen.failSave = true
   await page.goto('./#pantry')
-  await page
-    .getByRole('textbox', { name: 'Add pantry ingredient' })
-    .fill('rice')
   await page.getByRole('button', { name: 'Add pantry ingredient' }).click()
+  await page.getByRole('textbox', { name: 'Ingredient name' }).fill('rice')
+  await page
+    .getByRole('button', { name: 'Add ingredient', exact: true })
+    .click()
   await expect(page.getByRole('alert')).toContainText('Test save unavailable')
   await expect(page.locator('.pantryItem')).toHaveCount(0)
   expect(kitchen.state.pantry).toEqual([])

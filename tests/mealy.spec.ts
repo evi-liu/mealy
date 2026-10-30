@@ -175,20 +175,23 @@ test('setup, shortlist, plan, pantry and durable grocery checks', async ({
   await page.reload()
   await expect(page.locator('.groceryItem input').first()).toBeChecked()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
-  await page
-    .getByRole('textbox', { name: 'Add pantry ingredient' })
-    .fill('olive oil')
+  await page.getByRole('button', { name: 'Add pantry ingredient' }).click()
+  await page.getByRole('textbox', { name: 'Ingredient name' }).fill('olive oil')
   await expect(page.getByRole('combobox', { name: 'Track as' })).toHaveCount(0)
   await expect(page.getByRole('spinbutton')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Add pantry ingredient' }).click()
+  await page
+    .getByRole('button', { name: 'Add ingredient', exact: true })
+    .click()
+  await expect(page.getByRole('status')).toContainText('olive oil added')
+  await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Groceries', exact: true }).click()
-  await expect(page.getByText(/staple on hand: check quantity/)).toBeVisible()
+  await expect(page.getByText(/At home · remove from Pantry/)).toBeVisible()
   await expect(
     page
       .locator('.groceryItem')
       .filter({ hasText: 'olive oil' })
       .getByRole('checkbox'),
-  ).not.toBeChecked()
+  ).toBeChecked()
 })
 test('swiping honors skips, undo, keyboard controls and recipe details', async ({
   page,

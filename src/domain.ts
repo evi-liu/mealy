@@ -145,6 +145,7 @@ export const settingsSchema = z.object({
 export const pantrySchema = z.object({
   id: text,
   name: text,
+  /** Legacy fields retained for stored documents; pantry membership means at home. */
   kind: z.enum(['quantity', 'staple']),
   amount,
   unit: z.enum(units),
@@ -306,9 +307,8 @@ export type Grocery = {
   category: Ingredient['category']
   unit: 'g' | 'ml' | 'each'
   required: number
-  owned: number
   buy: number
-  staple: boolean
+  atHome: boolean
 }
 export function groceries(
   plan: Slot[],
@@ -337,27 +337,20 @@ export function groceries(
         category: ingredient.category,
         unit: quantity.unit,
         required: 0,
-        owned: 0,
         buy: 0,
-        staple: false,
+        atHome: false,
       }
       item.required += quantity.amount
       merged.set(key, item)
     }
   }
   for (const item of merged.values()) {
-    for (const stock of pantry.filter(
+    // Keep a purchase's own checkbox reversible rather than disabling it.
+    item.atHome = pantry.some(
       (stock) =>
         normalize(stock.name) === item.name && stock.fromGrocery !== item.key,
-    )) {
-      if (stock.kind === 'staple') item.staple = true
-      else {
-        const quantity = canonical(stock.amount, stock.unit)
-        if (quantity.unit === item.unit) item.owned += quantity.amount
-      }
-    }
-    const remainder = item.required - item.owned
-    item.buy = remainder < 1e-8 ? 0 : remainder
+    )
+    item.buy = item.atHome ? 0 : item.required
   }
   return [...merged.values()].sort(
     (a, b) =>
@@ -494,7 +487,7 @@ export function buildPlan(state: State): Slot[] {
         (ingredients.length - new Set(ingredients).size) * 1.5 +
         selected.filter((r) => state.loved.includes(r.id)).length * 3 +
         groceries(plan, state.recipes, state.pantry).filter(
-          (item) => item.owned > 0 || item.staple,
+          (item) => item.atHome,
         ).length
       if (score > bestScore) {
         bestScore = score
@@ -626,10 +619,41 @@ export function undo(state: State): State {
   }
 }
 
+export function addPantryItem(state: State, ingredient: string): State {
+  const name = normalize(ingredient)
+  if (!name) throw new Error('Enter an ingredient name.')
+  if (state.pantry.some((item) => normalize(item.name) === name))
+    throw new Error('That ingredient is already in your pantry.')
+  return {
+    ...state,
+    pantry: [
+      ...state.pantry,
+      {
+        id: crypto.randomUUID(),
+        name,
+        kind: 'staple',
+        amount: 1,
+        unit: 'each',
+      },
+    ],
+  }
+}
+
+export function removePantryItem(state: State, id: string): State {
+  const item = state.pantry.find((stock) => stock.id === id)
+  if (!item) throw new Error('That ingredient is no longer in your pantry.')
+  return {
+    ...state,
+    pantry: state.pantry.filter((stock) => stock.id !== id),
+    checked: state.checked.filter(
+      (key) => key.slice(0, key.lastIndexOf(':')) !== normalize(item.name),
+    ),
+  }
+}
+
 /**
- * Checking off a grocery puts it in the pantry as on hand (quantity unknown,
- * so this week's list is unchanged); unchecking removes only what the check
- * added. Existing pantry entries for the same ingredient are left alone.
+ * Purchases become persistent pantry entries. Their own shopping checkbox
+ * remains reversible; unchecking removes only the stock that check added.
  */
 export function toggleGroceryCheck(
   state: State,

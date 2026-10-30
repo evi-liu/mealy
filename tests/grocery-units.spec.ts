@@ -100,12 +100,15 @@ test('ingredient-first quantities convert without losing checks and persist afte
   await expect(row.locator('strong')).toHaveText(metricText)
 })
 
-test('pantry is a quick ingredient field, rejects duplicates and does not assume quantities', async ({
+test('pantry plus opens a single ingredient field and rejects duplicates', async ({
   page,
 }) => {
   await page.goto('./')
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
-  const input = page.getByRole('textbox', { name: 'Add pantry ingredient' })
+  await expect(page.getByRole('textbox')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Add pantry ingredient' }).click()
+  const input = page.getByRole('textbox', { name: 'Ingredient name' })
+  await expect(input).toBeFocused()
   await expect(page.locator('.pantryQuickAdd input')).toHaveCount(1)
   await expect(
     page.getByRole('textbox', { name: 'How much is left (optional)' }),
@@ -114,7 +117,7 @@ test('pantry is a quick ingredient field, rejects duplicates and does not assume
     await page.setViewportSize({ width, height: 844 })
     const field = (await input.boundingBox())!
     const add = (await page
-      .getByRole('button', { name: 'Add pantry ingredient' })
+      .getByRole('button', { name: 'Add ingredient', exact: true })
       .boundingBox())!
     expect(Math.abs(field.y - add.y)).toBeLessThan(1)
     expect(add.x + add.width).toBeLessThanOrEqual(width)
@@ -128,11 +131,15 @@ test('pantry is a quick ingredient field, rejects duplicates and does not assume
   await expect(page.locator('.pantryItem')).toHaveCount(1)
   await expect(page.locator('.pantryItem')).toHaveText('rice')
   await expect(page.locator('.pantryItem small')).toHaveCount(0)
-  await expect(page.locator('.pantryDot')).toHaveCount(1)
+  await expect(page.locator('.pantryCheck')).toHaveCount(1)
   await input.fill(' rice ')
-  await page.getByRole('button', { name: 'Add pantry ingredient' }).click()
+  await page
+    .getByRole('button', { name: 'Add ingredient', exact: true })
+    .click()
   await expect(page.getByRole('alert')).toContainText('already in your pantry')
   await expect(page.locator('.pantryItem')).toHaveCount(1)
+  await input.fill('')
+  await input.press('Escape')
   expect(
     (
       await new AxeBuilder({ page })

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fixtureRecipes } from '../tests/fixtures/recipes'
 import {
+  addPantryItem,
   buildPlan,
   canonical,
   decide,
@@ -9,6 +10,7 @@ import {
   newWeek,
   placeRemix,
   removeRecipe,
+  removePantryItem,
   shortlist,
   stateSchema,
   swapRecipe,
@@ -398,12 +400,12 @@ describe('grocery arithmetic', () => {
     amount: 0.1,
     unit: 'kg',
   }
-  it('scales and subtracts a small quantity instead of hiding the entire ingredient', () => {
+  it('keeps recipe quantities but crosses off ingredients already at home', () => {
     expect(
       groceries(plan, [recipe], [stock]).find((i) => i.name === 'rice'),
-    ).toMatchObject({ required: 750, owned: 100, buy: 650 })
+    ).toMatchObject({ required: 750, atHome: true, buy: 0 })
   })
-  it('merges compatible units and deducts stock once', () => {
+  it('merges compatible recipe units before applying pantry membership', () => {
     const second = {
       ...recipe,
       id: 'second',
@@ -423,24 +425,31 @@ describe('grocery arithmetic', () => {
     )
     expect(items.find((i) => i.name === 'rice')).toMatchObject({
       required: 1000,
-      buy: 900,
+      buy: 0,
+      atHome: true,
     })
   })
-  it('never guesses mass to volume, or substring matches unlike ingredients', () => {
-    const otherStock = [
-      { ...stock, unit: 'cup' as const },
-      { ...stock, name: 'rice vinegar', amount: 1000 },
-    ]
+  it('does not cross off rice just because rice vinegar is at home', () => {
+    const otherStock = [{ ...stock, name: 'rice vinegar', amount: 1000 }]
     expect(
       groceries(plan, [recipe], otherStock).find((i) => i.name === 'rice')?.buy,
     ).toBe(750)
   })
-  it('staples flag quantity review without deducting unknown amounts', () => {
+  it('crosses off unquantified staples without inventing a stock quantity', () => {
     expect(
       groceries(plan, [recipe], [{ ...stock, kind: 'staple' }]).find(
         (i) => i.name === 'rice',
       ),
-    ).toMatchObject({ buy: 750, owned: 0, staple: true })
+    ).toMatchObject({ buy: 0, required: 750, atHome: true })
+  })
+  it('treats legacy stock units as metadata and matches normalized names', () => {
+    expect(
+      groceries(
+        plan,
+        [recipe],
+        [{ ...stock, name: ' RICE ', unit: 'cup' }],
+      ).find((i) => i.name === 'rice'),
+    ).toMatchObject({ buy: 0, required: 750, atHome: true })
   })
   it('never produces negative buying quantities', () => {
     expect(
@@ -519,6 +528,29 @@ describe('remixes and loved feedback', () => {
 })
 
 describe('groceries and the pantry', () => {
+  it('adds pantry inventory independently of any plan and rejects duplicates or blank names', () => {
+    const state = addPantryItem(initialState([]), '  Soy  Sauce ')
+    expect(state.pantry).toEqual([
+      expect.objectContaining({ name: 'soy sauce', kind: 'staple' }),
+    ])
+    expect(state.plan).toEqual([])
+    expect(() => addPantryItem(state, 'SOY SAUCE')).toThrow(
+      'already in your pantry',
+    )
+    expect(() => addPantryItem(state, '   ')).toThrow(
+      'Enter an ingredient name',
+    )
+  })
+  it('removing an ingredient clears only its grocery checks across units', () => {
+    const state = addPantryItem(initialState([]), 'rice')
+    state.checked = ['rice:g', 'rice:ml', 'rice vinegar:ml', 'eggs:each']
+    const next = removePantryItem(state, state.pantry[0].id)
+    expect(next.pantry).toEqual([])
+    expect(next.checked).toEqual(['rice vinegar:ml', 'eggs:each'])
+    expect(() => removePantryItem(next, state.pantry[0].id)).toThrow(
+      'no longer',
+    )
+  })
   it('adds a checked grocery to the pantry and removes it when unchecked', () => {
     const state = initialState(fixtureRecipes)
     const checked = toggleGroceryCheck(state, 'rice:g', 'rice')
@@ -573,7 +605,7 @@ describe('groceries and the pantry', () => {
       ['rice', undefined, undefined],
     ])
   })
-  it('does not flag an item as a staple reminder on the list that bought it', () => {
+  it('keeps purchased groceries reversible and treats them as at home next week', () => {
     const state = ready()
     const plan = buildPlan(state)
     const item = groceries(plan, state.recipes, [])[0]
@@ -581,7 +613,13 @@ describe('groceries and the pantry', () => {
     const after = groceries(plan, bought.recipes, bought.pantry).find(
       (g) => g.key === item.key,
     )!
-    expect(after.staple).toBe(false)
+    expect(after.atHome).toBe(false)
     expect(after.buy).toBe(item.buy)
+    const next = newWeek(bought)
+    expect(
+      groceries(plan, bought.recipes, next.pantry).find(
+        (g) => g.key === item.key,
+      ),
+    ).toMatchObject({ atHome: true, buy: 0 })
   })
 })

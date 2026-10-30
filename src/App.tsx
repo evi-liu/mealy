@@ -12,7 +12,6 @@ import {
   Home,
   Minus,
   PackageOpen,
-  Pencil,
   Pin,
   Plus,
   RotateCcw,
@@ -29,7 +28,6 @@ import {
   categories,
   days,
   decide,
-  displayAmount,
   groceries,
   groceryQuantity,
   newWeek,
@@ -46,7 +44,6 @@ import {
   undo,
   weekKey,
   adoptQueued,
-  type PantryItem,
   type Recipe,
   type Settings,
   type State,
@@ -56,6 +53,7 @@ import { supabase, useHousehold, type HouseholdStore } from './store'
 import { RecipeForm, type InitialRecipeDraft } from './RecipeForm'
 import { AiBadge } from './AiBadge'
 import { AddRecipeSheet } from './AddRecipeSheet'
+import { Pantry } from './Pantry'
 import { RecipeLibraryRow } from './RecipeLibraryRow'
 import { useGroceryUnits } from './useGroceryUnits'
 import { useFlingCard } from './motion/useFlingCard'
@@ -819,18 +817,17 @@ function Groceries({
                       <strong>
                         {item.name}{' '}
                         <span className="groceryAmount">
-                          · {groceryQuantity(item.buy, item.unit, groceryUnits)}
+                          ·{' '}
+                          {groceryQuantity(
+                            item.required,
+                            item.unit,
+                            groceryUnits,
+                          )}
                         </span>
                       </strong>
-                      {(item.owned > 0 || item.staple) && (
+                      {item.atHome && (
                         <small>
-                          {item.owned > 0
-                            ? `Need ${groceryQuantity(item.required, item.unit, groceryUnits)} · pantry ${groceryQuantity(item.owned, item.unit, groceryUnits)}`
-                            : ''}
-                          {item.staple
-                            ? `${item.owned > 0 ? ' · ' : ''}staple on hand: check quantity`
-                            : ''}
-                          {item.buy === 0 ? ' · covered by measured stock' : ''}
+                          At home · remove from Pantry if you've run out
                         </small>
                       )}
                     </span>
@@ -842,217 +839,12 @@ function Groceries({
         )
       })}
       <p className="helper">
-        Measured stock is subtracted once per ingredient and compatible unit.
-        Staples are reminders, never assumed to cover an unknown quantity.
-        Checking off an item adds it to your pantry as on hand; unchecking
-        removes it again. US kitchen units use 240 ml cups, 15 ml tablespoons
-        and 5 ml teaspoons. Weight is never converted to cups.
+        Ingredients in your pantry are automatically crossed off. Remove them
+        from Pantry when you run out. Checking off a purchase adds it to your
+        pantry; unchecking removes what that check added. US kitchen units use
+        240 ml cups, 15 ml tablespoons and 5 ml teaspoons. Weight is never
+        converted to cups.
       </p>
-    </main>
-  )
-}
-
-const pantryNoteHint = 'Describe how many or how much is left'
-
-function PantryRow({
-  item,
-  change,
-}: {
-  item: PantryItem
-  change: HouseholdStore['change']
-}) {
-  const [editing, setEditing] = useState(false)
-  if (editing)
-    return (
-      <form
-        className="pantryItem pantryEdit"
-        onSubmit={async (e) => {
-          e.preventDefault()
-          const data = new FormData(e.currentTarget)
-          const name = normalize(String(data.get('name')))
-          const note = String(data.get('note')).trim()
-          if (
-            await change(
-              (s) => {
-                if (
-                  s.pantry.some(
-                    (p) => p.id !== item.id && normalize(p.name) === name,
-                  )
-                )
-                  throw new Error('That ingredient is already in your pantry.')
-                return {
-                  ...s,
-                  pantry: s.pantry.map((p) =>
-                    p.id === item.id
-                      ? { ...p, name, note: note || undefined }
-                      : p,
-                  ),
-                }
-              },
-              { kind: 'pantry' },
-            )
-          )
-            setEditing(false)
-        }}
-      >
-        <input
-          aria-label={`Name for ${item.name}`}
-          name="name"
-          required
-          maxLength={200}
-          defaultValue={item.name}
-          autoComplete="off"
-        />
-        <input
-          aria-label={`How much ${item.name} is left`}
-          name="note"
-          maxLength={60}
-          defaultValue={item.note}
-          placeholder={pantryNoteHint}
-          autoComplete="off"
-          enterKeyHint="done"
-        />
-        <div className="buttonRow">
-          <Button className="textButton" onClick={() => setEditing(false)}>
-            Cancel
-          </Button>
-          <Button className="textButton" type="submit">
-            Save
-          </Button>
-        </div>
-      </form>
-    )
-  return (
-    <div className="pantryItem">
-      <span className="pantryDot" aria-hidden="true" />
-      <span className="pantryName">
-        <strong>{item.name}</strong>
-        {(item.kind === 'quantity' || item.note) && (
-          <small>
-            {item.kind === 'quantity'
-              ? `${displayAmount(item.amount)} ${item.unit}`
-              : ''}
-            {item.kind === 'quantity' && item.note ? ' · ' : ''}
-            {item.note}
-          </small>
-        )}
-      </span>
-      <Button
-        className="iconButton pantryRemove"
-        aria-label={`Edit ${item.name}`}
-        onClick={() => setEditing(true)}
-      >
-        <Pencil size={16} />
-      </Button>
-      <Button
-        className="iconButton pantryRemove"
-        aria-label={`Remove ${item.name}`}
-        onClick={() =>
-          void change(
-            (s) => ({
-              ...s,
-              pantry: s.pantry.filter((p) => p.id !== item.id),
-              // A bought item only unchecks its own grocery; removing other
-              // stock can raise needs, so every check is cleared.
-              checked: item.fromGrocery
-                ? s.checked.filter((key) => key !== item.fromGrocery)
-                : [],
-            }),
-            { kind: 'pantry' },
-          )
-        }
-      >
-        <X size={18} />
-      </Button>
-    </div>
-  )
-}
-
-function Pantry({
-  state,
-  change,
-}: {
-  state: State
-  change: HouseholdStore['change']
-}) {
-  const ingredientInput = useRef<HTMLInputElement>(null)
-  const [focusAfterAdd, setFocusAfterAdd] = useState(false)
-  useEffect(() => {
-    if (focusAfterAdd) {
-      ingredientInput.current?.focus()
-      setFocusAfterAdd(false)
-    }
-  }, [focusAfterAdd])
-  return (
-    <main className="screen">
-      <Header
-        eyebrow="YOUR KITCHEN"
-        title="Pantry"
-        action={
-          <span className="countBadge">{state.pantry.length} ingredients</span>
-        }
-      />
-      <p className="screenLead">What's already in your kitchen.</p>
-      <form
-        className="pantryQuickAdd"
-        onSubmit={async (e) => {
-          e.preventDefault()
-          const form = e.currentTarget
-          const data = new FormData(form)
-          if (
-            await change(
-              (s) => {
-                const name = normalize(String(data.get('name')))
-                if (s.pantry.some((item) => normalize(item.name) === name))
-                  throw new Error('That ingredient is already in your pantry.')
-                return {
-                  ...s,
-                  pantry: [
-                    ...s.pantry,
-                    {
-                      id: crypto.randomUUID(),
-                      name,
-                      kind: 'staple',
-                      amount: 1,
-                      unit: 'each',
-                    },
-                  ],
-                }
-              },
-              { kind: 'pantry' },
-            )
-          ) {
-            form.reset()
-            setFocusAfterAdd(true)
-          }
-        }}
-      >
-        <input
-          ref={ingredientInput}
-          aria-label="Add pantry ingredient"
-          name="name"
-          required
-          maxLength={200}
-          placeholder="Add an ingredient..."
-          autoComplete="off"
-          enterKeyHint="done"
-        />
-        <Button
-          className="iconButton"
-          type="submit"
-          aria-label="Add pantry ingredient"
-        >
-          <Plus size={20} />
-        </Button>
-      </form>
-      <section className="pantryList">
-        {state.pantry.length === 0 && (
-          <p className="helper">Add your first ingredient above.</p>
-        )}
-        {state.pantry.map((item) => (
-          <PantryRow key={item.id} item={item} change={change} />
-        ))}
-      </section>
     </main>
   )
 }
@@ -1708,7 +1500,14 @@ function Kitchen({ exit }: { exit: () => void }) {
             {tab === 'groceries' && (
               <Groceries state={state} change={store.change} />
             )}
-            {tab === 'pantry' && <Pantry state={state} change={store.change} />}
+            {tab === 'pantry' && (
+              <Pantry
+                state={state}
+                change={store.change}
+                busy={store.busy}
+                error={store.error}
+              />
+            )}
             {tab === 'profile' && (
               <ProfileScreen onHouseholdChanged={store.reload} exit={exit} />
             )}
@@ -1722,7 +1521,7 @@ function Kitchen({ exit }: { exit: () => void }) {
                 catalog={catalog}
               />
             )}
-            {tab !== 'profile' && (
+            {tab !== 'profile' && tab !== 'pantry' && (
               <div className="weekAction">
                 <Button
                   className="textButton"
