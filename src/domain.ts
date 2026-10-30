@@ -92,6 +92,8 @@ export const recipeSchema = z
     source: z.enum(['own', 'demo', 'reference']),
     sourceUrl: sourceUrlSchema.optional(),
     facts: recipeFactsSchema.optional(),
+    /** Set while this is an unedited copy of a shared catalog recipe. */
+    catalogId: text.optional(),
     imagePath: z.string().max(500).optional(),
     aiDraft: z
       .object({
@@ -341,8 +343,24 @@ export function groceries(
   )
 }
 
-export function shortlist(state: State): string[] {
-  const available = state.recipes.filter(
+/** A stable 0-1 value per week and recipe, so catalog options rotate weekly. */
+function weeklyJitter(week: string, id: string) {
+  let hash = 2166136261
+  for (const char of `${week}:${id}`)
+    hash = Math.imul(hash ^ char.charCodeAt(0), 16777619)
+  return (hash >>> 0) / 4294967295
+}
+
+/**
+ * The week's swipe stack. Clean catalog recipes join the pool of new options,
+ * rotating weekly; the household's own copy of a recipe takes precedence.
+ */
+export function shortlist(state: State, catalog: Recipe[] = []): string[] {
+  const saved = new Set(state.recipes.map((recipe) => recipe.id))
+  const available = [
+    ...state.recipes,
+    ...catalog.filter((recipe) => !saved.has(recipe.id)),
+  ].filter(
     (recipe) => recipeReady(recipe) && !state.blocked.includes(recipe.id),
   )
   const score = (recipe: Recipe) =>
@@ -351,7 +369,8 @@ export function shortlist(state: State): string[] {
     recipe.ingredients.filter((i) =>
       state.pantry.some((p) => normalize(p.name) === normalize(i.name)),
     ).length -
-    recipe.minutes / 60
+    recipe.minutes / 60 +
+    (recipe.catalogId ? weeklyJitter(state.week, recipe.id) * 4 : 0)
   const sort = (a: Recipe, b: Recipe) =>
     score(b) - score(a) || a.id.localeCompare(b.id)
   const familiar = available
@@ -623,9 +642,28 @@ export function toggleGroceryCheck(
   }
 }
 
+/** Copies the catalog recipes queued this week into the household's recipes. */
+export function adoptQueued(state: State, catalog: Recipe[]): State {
+  const saved = new Set(state.recipes.map((recipe) => recipe.id))
+  const adopted = catalog.filter(
+    (recipe) => state.queue.includes(recipe.id) && !saved.has(recipe.id),
+  )
+  return adopted.length
+    ? { ...state, recipes: [...state.recipes, ...adopted] }
+    : state
+}
+
 export function newWeek(state: State): State {
   return {
-    ...initialState(state.recipes),
+    // Unedited catalog copies return to the catalog unless loved or cooked.
+    ...initialState(
+      state.recipes.filter(
+        (recipe) =>
+          !recipe.catalogId ||
+          state.loved.includes(recipe.id) ||
+          state.cooked.includes(recipe.id),
+      ),
+    ),
     // Bought groceries stay as ordinary pantry items for the new week.
     pantry: state.pantry.map(({ fromGrocery: _bought, ...item }) => item),
     bookmarks: state.bookmarks,

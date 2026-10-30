@@ -74,6 +74,19 @@ beforeAll(async () => {
       'utf8',
     ),
   )
+  await db.exec(
+    await readFile(
+      new URL(
+        '../supabase/migrations/202610300003_recipe_catalog.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  )
+  await db.exec(`
+    insert into public.catalog_recipes(id, source, url, title, servings, minutes, ingredient_lines)
+    values ('tiffycooks:test', 'tiffycooks.com', 'https://tiffycooks.com/test/', 'Test noodles', 4, 20, '["1 tbsp soy sauce"]');
+  `)
   for (const id of [householdA, householdB])
     await db.query(
       'insert into public.household_state(household_id,data) values ($1,$2)',
@@ -270,6 +283,37 @@ describe('actual migration on embedded PostgreSQL', () => {
         'Household access denied',
       ),
     )
+  })
+  it('lets household members read the recipe catalog but never write it', async () => {
+    await asUser(alice, async () => {
+      expect(
+        (await db.query('select id from public.catalog_recipes')).rows,
+      ).toEqual([{ id: 'tiffycooks:test' }])
+      await expect(
+        db.query(
+          `insert into public.catalog_recipes(id, source, url, title, ingredient_lines) values ('x', 'tiffycooks.com', 'https://tiffycooks.com/x/', 'X', '[]')`,
+        ),
+      ).rejects.toThrow('permission denied')
+      await expect(
+        db.query(`update public.catalog_recipes set title = 'Changed'`),
+      ).rejects.toThrow('permission denied')
+      await expect(
+        db.query('select * from public.catalog_pages'),
+      ).rejects.toThrow('permission denied')
+      await expect(
+        db.query('select * from public.catalog_sources'),
+      ).rejects.toThrow('permission denied')
+    })
+    for (const user of [outsider, null])
+      await asUser(user, async () =>
+        expect(
+          (
+            await db
+              .query('select id from public.catalog_recipes')
+              .catch(() => ({ rows: [] }))
+          ).rows,
+        ).toEqual([]),
+      )
   })
   it('revokes access immediately when an allowlist entry is removed', async () => {
     await db.exec(

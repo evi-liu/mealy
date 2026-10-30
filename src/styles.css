@@ -1353,3 +1353,14 @@ ul.changeList {
 .pantryEdit .buttonRow {
   margin-left: auto;
 }
+.catalogSection {
+  margin: 28px 0 8px;
+}
+.catalogSection h2 {
+  margin: 4px 0 6px;
+}
+.catalogTitle {
+  display: block;
+  margin: 4px 0 2px;
+  font-size: 16px;
+}

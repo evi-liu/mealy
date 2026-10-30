@@ -94,11 +94,14 @@ function category(name: string): Ingredient['category'] {
   return 'Other'
 }
 
-export function parseIngredientFact(
-  sourceText: string,
-):
-  | { ingredient: Ingredient; pending?: never }
-  | { ingredient?: never; pending: PendingIngredient } {
+export function parseIngredientFact(sourceText: string):
+  | { ingredient: Ingredient; pending?: never; amount?: never }
+  | {
+      ingredient?: never
+      pending: PendingIngredient
+      /** The single parsed amount, when only the unit was unresolved. */
+      amount?: number
+    } {
   const line = sourceText
     .replace(/[¼½¾⅓⅔⅛⅜⅝⅞]/g, (value) => ` ${fractions[value]}`)
     .replace(/\s+/g, ' ')
@@ -132,6 +135,10 @@ export function parseIngredientFact(
   const combined = /\+|\benough to\b/i.test(line)
   if (range || combined || !unit || !amount || !Number.isFinite(amount)) {
     return {
+      amount:
+        !range && !combined && amount && Number.isFinite(amount)
+          ? amount
+          : undefined,
       pending: {
         name,
         unit,

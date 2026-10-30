@@ -16,3 +16,6 @@ verify_jwt = false
 
 [functions.recipe-draft]
 verify_jwt = false
+
+[functions.catalog-import]
+verify_jwt = false

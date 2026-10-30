@@ -42,6 +42,7 @@ import {
   toggleLoved,
   undo,
   weekKey,
+  adoptQueued,
   type PantryItem,
   type Recipe,
   type Settings,
@@ -62,6 +63,7 @@ import { useFlingCard } from './motion/useFlingCard'
 import { flyToDeck } from './motion/flyToDeck'
 import { demoRecipeAi, liveRecipeAi, type RecipeAi } from './ai/recipeAi'
 import { RecipeArt } from './RecipeArt'
+import { unsaved, useCatalog, type Catalog } from './catalog'
 import { LovedButton, RecipeDetails, type RemixSave } from './RecipeDetails'
 
 const tabs = ['plan', 'groceries', 'pantry', 'recipes'] as const
@@ -125,11 +127,15 @@ function Toggle({
 function Setup({
   state,
   change,
+  catalog,
 }: {
   state: State
   change: HouseholdStore['change']
+  catalog: Catalog
 }) {
   const settings = state.settings
+  const anyReady =
+    state.recipes.some(recipeReady) || unsaved(catalog.ready, state).length > 0
   const target = targets(settings)
   function update(patch: Partial<Settings>) {
     void change(
@@ -267,20 +273,23 @@ function Setup({
         <Button
           className="primaryButton"
           disabled={
-            (!state.recipes.some(recipeReady) &&
-              (settings.dinners > 0 || settings.kairos)) ||
+            (!anyReady && (settings.dinners > 0 || settings.kairos)) ||
             (settings.dinners === 0 && target.lunches > 0)
           }
           onClick={() =>
             void change(
-              (s) => ({ ...s, phase: 'swipe', queue: shortlist(s) }),
+              (s) =>
+                adoptQueued(
+                  { ...s, phase: 'swipe', queue: shortlist(s, catalog.ready) },
+                  catalog.ready,
+                ),
               { kind: 'settings' },
             )
           }
         >
           Start choosing recipes <ArrowRight size={19} />
         </Button>
-        {state.recipes.length > 0 && !state.recipes.some(recipeReady) && (
+        {state.recipes.length > 0 && !anyReady && (
           <p className="helper">
             Review recipe facts in Recipes before choosing meals.
           </p>
@@ -1051,6 +1060,62 @@ function Pantry({
   )
 }
 
+const sourcesLabel = 'TIFFY COOKS & THE WOKS OF LIFE'
+
+/** The shared catalog: counts, plus imports waiting for a quick review. */
+function CatalogSection({
+  state,
+  catalog,
+  onReview,
+}: {
+  state: State
+  catalog: Catalog
+  onReview: (recipe: Recipe) => void
+}) {
+  const [shown, setShown] = useState(6)
+  if (!catalog.loaded || (!catalog.ready.length && !catalog.review.length))
+    return catalog.error ? <p className="error">{catalog.error}</p> : null
+  const ready = unsaved(catalog.ready, state).length
+  const review = unsaved(catalog.review, state)
+  return (
+    <section className="catalogSection" aria-labelledby="catalog-heading">
+      <span className="eyebrow">FROM {sourcesLabel}</span>
+      <h2 id="catalog-heading">Recipe catalog</h2>
+      <p className="helper">
+        {ready} ready for your swipe stack · {review.length} need a quick
+        review. New recipes arrive weekly. Only ingredient facts are imported;
+        directions stay on the source sites. Ready imports start
+        leftover-friendly with a maximum batch of twice the published yield;
+        adjust any recipe after you like it.
+      </p>
+      {review.slice(0, shown).map((recipe) => (
+        <article className="mealRow recipeEntry" key={recipe.id}>
+          <span className="eyebrow">
+            {recipe.sourceUrl ? sourceName(recipe.sourceUrl) : 'CATALOG'}
+          </span>
+          <strong className="catalogTitle">{recipe.title}</strong>
+          <p className="helper">
+            {recipe.facts?.pendingIngredients.length
+              ? `${recipe.facts.pendingIngredients.length} ingredient amounts need attention`
+              : 'Confirm the yield and time'}
+          </p>
+          <Button className="textButton" onClick={() => onReview(recipe)}>
+            Review details
+          </Button>
+        </article>
+      ))}
+      {review.length > shown && (
+        <Button
+          className="secondaryButton"
+          onClick={() => setShown((count) => count + 12)}
+        >
+          Show more to review
+        </Button>
+      )}
+    </section>
+  )
+}
+
 function Recipes({
   store,
   live,
@@ -1058,6 +1123,7 @@ function Recipes({
   details,
   remix,
   clearRemix,
+  catalog,
 }: {
   store: HouseholdStore
   live: boolean
@@ -1065,6 +1131,7 @@ function Recipes({
   details: (recipe: Recipe) => void
   remix: RemixSave | null
   clearRemix: () => void
+  catalog: Catalog
 }) {
   const state = store.state!
   const [editing, setEditing] = useState<Recipe | 'new' | null>(null)
@@ -1168,7 +1235,12 @@ function Recipes({
           live={live}
           ai={editing === 'new' && !fromBookmark ? ai : undefined}
           heading={reviewingRemix ? 'Review your remix' : undefined}
-          celebrate={editing === 'new' || reviewingRemix}
+          celebrate={
+            editing === 'new' ||
+            reviewingRemix ||
+            // A catalog recipe being reviewed joins the household's recipes.
+            !state.recipes.some((r) => r.id === editing.id)
+          }
           notice={
             remixSlot
               ? `Saving puts this remix in this week's plan in place of “${remixSlot.title}”, pinned, as long as it still covers that recipe's servings. You'll confirm the grocery list again.`
@@ -1263,6 +1335,15 @@ function Recipes({
               </div>
             </article>
           ))}
+          <CatalogSection
+            state={state}
+            catalog={catalog}
+            onReview={(recipe) => {
+              setFromBookmark(undefined)
+              setBaseline(null)
+              setEditing(recipe)
+            }}
+          />
           <Bookmarks
             state={state}
             change={store.change}
@@ -1290,6 +1371,7 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
   const [remix, setRemix] = useState<RemixSave | null>(null)
   const clearRemix = useCallback(() => setRemix(null), [])
   const ai = mode === 'live' ? liveRecipeAi : demoRecipeAi
+  const catalog = useCatalog(mode === 'live')
   const headingRef = useRef<HTMLDivElement>(null)
   function navigate(tab: Tab) {
     window.location.hash = tab
@@ -1368,7 +1450,7 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
           >
             {tab === 'plan' &&
               (state.phase === 'setup' ? (
-                <Setup state={state} change={store.change} />
+                <Setup state={state} change={store.change} catalog={catalog} />
               ) : state.phase === 'swipe' ? (
                 <Swipe
                   state={state}
@@ -1399,6 +1481,7 @@ function Kitchen({ mode, exit }: { mode: 'demo' | 'live'; exit: () => void }) {
                 details={details}
                 remix={remix}
                 clearRemix={clearRemix}
+                catalog={catalog}
               />
             )}
             <div className="weekAction">

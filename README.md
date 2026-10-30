@@ -60,6 +60,21 @@ No Supabase service-role key is needed by the frontend **or** the ranking functi
 
 The state document keeps the recipe library, bookmarks, settings, shared queue, choices, pantry, plan and checks in one atomic unit. It is not a multi-tenant SaaS schema, background sync queue or cooking calendar. Writes are limited to a 2 MB document; the typed client caps libraries at 200 recipes, 200 bookmarks, 300 stock entries and twelve shortlisted recipes. Events are immutable via client privileges, with a security-invoker evidence view. Temporary skips are excluded from durable preference evidence. Loved is a toggle; loving and un-loving are recorded as `loved` / `unloved` events (`202610300002_unloved_event.sql`); historical cooked feedback is preserved but no longer has a UI action.
 
+## Recipe catalog (Tiffy Cooks and The Woks of Life)
+
+The swipe stack can draw from a shared catalog of **ingredient facts** from both trusted sources, so a household can start planning without entering recipes one by one. The `catalog-import` Edge Function reads each site's Yoast sitemap (`sitemap_index.xml` → `post-sitemap*.xml`), preloads the 100 newest recipes per site in batches of 15, then checks at most weekly for posts newer than the last check. It fetches politely (1.5 s apart, identifying user agent, host allowlist with redirect checks, size and time limits), stores only title, yield, time, ingredient lines and categories, and records every URL it has seen so non-recipe posts are never refetched. Directions, descriptions and photos are never stored. The catalog lives in Supabase (`catalog_recipes`), not in this public repository.
+
+The app parses catalog rows with the same ingredient parser as the Tiffy facts. Recipes whose every line parses (ignoring "to taste", "optional", "garnish", "pinch" lines) and that have a yield and time join the stack as **ready**: leftover-friendly with a maximum batch of twice the published yield, labelled and adjustable. Anything with ranges, missing amounts or unknown units waits under **Recipes → Recipe catalog** for a quick review; nothing is guessed. Desserts, drinks and sauces stay out of the dinner stack. Queued catalog recipes are copied into the household for the week; unedited copies return to the catalog at a fresh week unless loved or cooked.
+
+Set up once, after applying `202610300003_recipe_catalog.sql`:
+
+```sh
+supabase functions deploy catalog-import
+# Set CATALOG_CRON_SECRET (a long random string) as an Edge Function secret in the dashboard.
+```
+
+Then run `supabase/setup-catalog-cron.sql` in the SQL editor with your project ref and the same secret filled in (do not commit the edited file). It enables `pg_cron`/`pg_net`, stores both values in Vault and schedules an hourly tick; the function itself limits site visits to the preload batches and one weekly check. `select cron.unschedule('catalog-import');` stops it.
+
 ## Optional AI ranking and recipe drafting
 
 The app's planning and serving logic works without AI. Clicking **Use optional AI ranking** sends the current household's recipe titles, ingredient names, time/variety, pantry names and explicit loved IDs to a server-side function, which calls OpenAI. It can only reorder the supplied shortlist and explain that order. It cannot create recipes, quantities or a plan, nor override dislikes or serving constraints.
@@ -84,7 +99,7 @@ Both Edge Functions have gateway `verify_jwt=false` to support current Supabase 
 For optional static Edge Function checking with Deno installed:
 
 ```sh
-deno check supabase/functions/rank-recipes/index.ts supabase/functions/recipe-draft/index.ts
+deno check supabase/functions/rank-recipes/index.ts supabase/functions/recipe-draft/index.ts supabase/functions/catalog-import/index.ts
 ```
 
 No embeddings, vector database, fine-tuning, or chat-memory dependence is needed for this slice.

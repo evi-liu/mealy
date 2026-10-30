@@ -24,6 +24,10 @@ The household chose to allow **any** recipe to be remixed with AI, including sou
 
 `node scripts/collect-tiffy-facts.mjs` reproduces only these ten factual snapshots from Recipe JSON-LD. It has a fixed source list, exact HTTPS host checks on redirects, a timeout and a response-size limit. Collection fails visibly on missing yields/times or unexpected source structure and writes only after every source succeeds. Review the generated diff and rerun recipe-facts tests before publishing changes. This is not a live scraper, scheduled refresh or unrestricted import endpoint.
 
+### Recipe catalog (household decision, 2026-10-30)
+
+The household chose to preload and weekly-refresh a facts-only catalog from **both** sites (see README → Recipe catalog), and to allow catalog recipes to be remixed with AI. The Woks of Life's robots.txt opts out of AI crawlers (`anthropic-ai`, `GPTBot`, `Google-Extended`, `CCbot`); the importer is not such a crawler and only reads public sitemaps and recipe pages allowed for all user agents, but sending those facts to an AI provider during a remix goes against that stated preference. This was raised and the household decided to proceed. Both sites disallow `/wp-json/`, which is not used. Only titles, yields, times, ingredient lines and categories are stored, privately in Supabase; no directions, narrative text or photographs. This is a household choice, not a license from either publisher.
+
 ## Permission checks
 
 Official sources were checked on **2026-10-28**:
