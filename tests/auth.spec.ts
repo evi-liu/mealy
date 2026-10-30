@@ -81,10 +81,17 @@ test('AI failures leave the form unchanged instead of supplying a canned recipe'
   )
   await page.goto('./#recipes')
   await page.getByRole('button', { name: 'Add recipe' }).click()
+  await page.getByRole('button', { name: /Add with AI/ }).click()
   await page.getByLabel('Describe a recipe to add').fill('Bean soup')
   await page.getByRole('button', { name: 'Draft recipe' }).click()
   await expect(page.getByRole('alert')).toContainText(
     'AI provider unavailable.',
   )
-  await expect(page.getByLabel('Recipe name', { exact: true })).toHaveValue('')
+  await expect(page.getByLabel('Recipe name', { exact: true })).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: 'Save recipe', exact: true }),
+  ).toHaveCount(0)
+  await expect(page.getByLabel('Describe a recipe to add')).toHaveValue(
+    'Bean soup',
+  )
 })

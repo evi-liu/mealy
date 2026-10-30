@@ -239,6 +239,35 @@ export function initialState(recipes: Recipe[] = []): State {
   }
 }
 
+export function removeRecipe(state: State, id: string): State {
+  if (!state.recipes.some((recipe) => recipe.id === id))
+    throw new Error(
+      'This recipe was already removed. Reopen your recipe library.',
+    )
+  const queue = state.queue.filter((recipeId) => recipeId !== id)
+  const decisions = { ...state.decisions }
+  delete decisions[id]
+  const affectedPlan = state.plan.some((slot) => slot.recipeId === id)
+  return {
+    ...state,
+    recipes: state.recipes.filter((recipe) => recipe.id !== id),
+    queue,
+    decisions,
+    history: state.history.filter((recipeId) => recipeId !== id),
+    loved: state.loved.filter((recipeId) => recipeId !== id),
+    cooked: state.cooked.filter((recipeId) => recipeId !== id),
+    // Deleting isn't an unblock: preserve explicit recommendation exclusions.
+    ...(affectedPlan
+      ? {
+          plan: [],
+          phase: queue.length ? 'swipe' : 'setup',
+          confirmed: false,
+          checked: [],
+        }
+      : {}),
+  }
+}
+
 export function targets(settings: Settings) {
   const away = settings.traveling
     ? new Set(settings.away.filter((day) => days.indexOf(day) < 5)).size

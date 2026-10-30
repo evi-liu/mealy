@@ -8,9 +8,11 @@ import { Sparkles } from 'lucide-react'
  */
 export function Bookmarks({
   onImport,
+  onPendingChange,
 }: {
   /** Resolves to an error message, or nothing once the form is open. */
   onImport: (url: string) => Promise<string | void>
+  onPendingChange: (pending: boolean) => void
 }) {
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
@@ -18,17 +20,20 @@ export function Bookmarks({
   async function run() {
     setError('')
     setImporting(true)
+    onPendingChange(true)
     try {
       const failure = await onImport(url.trim())
       if (failure) setError(failure)
       else setUrl('')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
     } finally {
       setImporting(false)
+      onPendingChange(false)
     }
   }
   return (
-    <section className="bookmarks" aria-labelledby="import-heading">
-      <h2 id="import-heading">Import from a link</h2>
+    <section className="bookmarks" aria-label="Recipe website">
       <p className="helper">
         Paste a recipe page. AI reads it, ingredients, amounts and directions
         included, into a new recipe for you to check and save.
@@ -41,6 +46,7 @@ export function Bookmarks({
         }}
       >
         <input
+          autoFocus
           type="url"
           inputMode="url"
           aria-label="Recipe link"

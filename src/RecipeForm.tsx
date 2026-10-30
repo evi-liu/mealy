@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Button } from '@base-ui/react/button'
 import { ArrowLeft, Plus, Sparkles, X } from 'lucide-react'
 import {
@@ -8,7 +8,6 @@ import {
   units,
   type Ingredient,
   type Recipe,
-  type Bookmark,
 } from './domain'
 import { PromptBar } from './ai/PromptBar'
 import { useConfirm } from './confirm'
@@ -25,7 +24,6 @@ export function RecipeForm({
   recipe,
   onSave,
   onCancel,
-  bookmark,
   ai,
   heading,
   notice,
@@ -35,8 +33,7 @@ export function RecipeForm({
   recipe?: Recipe
   onSave: (recipe: Recipe, image?: File) => Promise<boolean>
   onCancel: () => void
-  bookmark?: Bookmark
-  /** Offered only for brand-new recipes; drafts stay local until saved. */
+  /** Generates or refines a draft; nothing is saved before review. */
   ai?: RecipeAi
   heading?: string
   notice?: string
@@ -62,14 +59,24 @@ export function RecipeForm({
         ]
       : imported
         ? imported.recipe.ingredients
-        : // A blank start: the household or AI fills in every value.
-          [{ name: '', amount: NaN, unit: '', category: '' }],
+        : [{ name: '', amount: NaN, unit: '', category: '' }],
   )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
   const [draft, setDraft] = useState<RecipeDraft | undefined>(imported?.recipe)
   const [draftCount, setDraftCount] = useState(imported ? 1 : 0)
+  const showFields = Boolean(recipe || draft)
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      formRef.current
+        ?.querySelector<HTMLElement>(
+          showFields ? 'input[name="title"]' : 'textarea',
+        )
+        ?.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [showFields, draftCount])
   const [aiDraft, setAiDraft] = useState(
     recipe?.aiDraft ??
       (imported && {
@@ -83,6 +90,7 @@ export function RecipeForm({
   const [touched, setTouched] = useState(false)
   const confirm = useConfirm()
   async function leave() {
+    if (drafting || saving) return
     if (
       (touched || draft) &&
       !(await confirm({
@@ -160,6 +168,10 @@ export function RecipeForm({
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!showFields) {
+      setError('Describe a dish and generate a draft before saving.')
+      return
+    }
     const button = (event.nativeEvent as SubmitEvent).submitter
     const form = new FormData(event.currentTarget)
     const parsed = recipeSchema.safeParse({
@@ -242,6 +254,7 @@ export function RecipeForm({
       <Button
         className="iconButton floatingBack"
         aria-label="Back to recipes"
+        disabled={drafting || saving}
         onClick={leave}
       >
         <ArrowLeft size={20} />
@@ -252,20 +265,17 @@ export function RecipeForm({
             ? 'Review recipe facts'
             : recipe
               ? 'Edit your recipe'
-              : 'A recipe of your own')}
+              : draft
+                ? 'Review your recipe'
+                : 'What sounds good?')}
       </h2>
       <p className="helper">
         {reference
           ? 'Review the imported quantities, directions and your batch capacity before planning.'
-          : 'Use your own recipe or content you have permission to save. All quantities describe the original batch.'}
+          : showFields
+            ? 'Review the quantities and steps before saving. All quantities describe the original batch.'
+            : 'Start with a craving, an ingredient or an idea. AI will draft a recipe for you to review.'}
       </p>
-      {bookmark && (
-        <p className="notice">
-          This is a link bookmark, not an imported recipe. Enter only your own
-          recipe details or content you have permission to save. Yield, amounts
-          and timing must be reviewed before this can enter a plan.
-        </p>
-      )}
       {notice && <p className="notice">{notice}</p>}
       {ai && recipe?.sourceUrl && (
         <section className="aiPrompt" aria-labelledby="ai-fill-heading">
@@ -299,8 +309,7 @@ export function RecipeForm({
             <Sparkles size={17} /> Draft it with AI
           </h3>
           <p className="helper">
-            Describe a dish and AI fills in the form below. Nothing is saved
-            until you review it and tap Save.
+            Nothing is saved until you review the draft and tap Save.
           </p>
           <PromptBar
             label="Describe a recipe to add"
@@ -341,272 +350,275 @@ export function RecipeForm({
           {error}
         </p>
       )}
-      <fieldset
-        disabled={saving || drafting}
-        key={draftCount}
-        className={draftCount ? 'draftReveal' : undefined}
-      >
-        <label>
-          Recipe name
-          <input
-            name="title"
-            required
-            maxLength={200}
-            defaultValue={values?.title ?? bookmark?.title}
-          />
-        </label>
-        <label>
-          {reference
-            ? 'Original recipe'
-            : 'Source reference (optional HTTPS link)'}
-          <input
-            name="sourceUrl"
-            type="url"
-            maxLength={2048}
-            required={reference}
-            readOnly={reference}
-            defaultValue={
-              recipe?.sourceUrl ?? bookmark?.url ?? imported?.sourceUrl
-            }
-          />
-        </label>
-        <label>
-          A little description
-          <textarea
-            name="description"
-            maxLength={500}
-            defaultValue={values?.description}
-          />
-        </label>
-        <div className="formGrid">
+      {showFields && (
+        <fieldset
+          disabled={saving || drafting}
+          key={draftCount}
+          className={draftCount ? 'draftReveal' : undefined}
+        >
           <label>
-            Makes (servings)
+            Recipe name
             <input
-              name="servings"
-              type="number"
-              min={1}
-              max={30}
-              required
-              defaultValue={values?.servings}
-            />
-          </label>
-          <label>
-            Max batch servings
-            <input
-              name="maxServings"
-              type="number"
-              min={2}
-              max={60}
-              required
-              defaultValue={values?.maxServings}
-            />
-          </label>
-          <label>
-            Total minutes
-            <input
-              name="minutes"
-              type="number"
-              min={1}
-              max={1440}
-              required
-              defaultValue={values?.minutes}
-            />
-          </label>
-          <label>
-            Main protein / variety
-            <input
-              name="protein"
+              name="title"
               required
               maxLength={200}
-              placeholder="e.g. lentils"
-              defaultValue={
-                draft
-                  ? draft.protein
-                  : recipe?.facts?.needsReview
-                    ? undefined
-                    : recipe?.protein
-              }
+              defaultValue={values?.title}
             />
           </label>
-        </div>
-        <p className="helper">
-          Maximum batch size is what you can realistically cook with your
-          equipment. Scaling changes quantities, not cooking time.
-          {reference &&
-            ' Imported recipes start conservatively at the original yield. Review leftover and potluck suitability yourself.'}
-        </p>
-        <label className="checkLabel">
-          <input
-            name="leftovers"
-            type="checkbox"
-            defaultChecked={values?.leftovers ?? false}
-          />{' '}
-          Good for leftover lunches
-        </label>
-        <label className="checkLabel">
-          <input
-            name="potluck"
-            type="checkbox"
-            defaultChecked={values?.potluck ?? false}
-          />{' '}
-          Suitable for a potluck
-        </label>
-        {recipe?.facts && (
-          <details>
-            <summary>Original ingredient facts</summary>
-            <ul>
-              {recipe.facts.ingredientLines.map((line, index) => (
-                <li key={index}>{line}</li>
-              ))}
-            </ul>
-          </details>
-        )}
-        <h3>Ingredients</h3>
-        <p className="helper">
-          Use consistent ingredient names to merge groceries. Cups/spoons use US
-          kitchen measures (240/15/5 ml). No mass-to-volume guessing.
-        </p>
-        {ingredients.map((item, index) => (
-          <div className="ingredientEditor" key={index}>
-            {item.review && (
-              <p className="helper">
-                Source: {item.review.sourceText}. {item.review.reason}
-              </p>
-            )}
+          <label>
+            {reference
+              ? 'Original recipe'
+              : 'Source reference (optional HTTPS link)'}
+            <input
+              name="sourceUrl"
+              type="url"
+              maxLength={2048}
+              required={reference}
+              readOnly={reference}
+              defaultValue={recipe?.sourceUrl ?? imported?.sourceUrl}
+            />
+          </label>
+          <label>
+            A little description
+            <textarea
+              name="description"
+              maxLength={500}
+              defaultValue={values?.description}
+            />
+          </label>
+          <div className="formGrid">
             <label>
-              Ingredient {index + 1}
+              Makes (servings)
               <input
+                name="servings"
+                type="number"
+                min={1}
+                max={30}
+                required
+                defaultValue={values?.servings}
+              />
+            </label>
+            <label>
+              Max batch servings
+              <input
+                name="maxServings"
+                type="number"
+                min={2}
+                max={60}
+                required
+                defaultValue={values?.maxServings}
+              />
+            </label>
+            <label>
+              Total minutes
+              <input
+                name="minutes"
+                type="number"
+                min={1}
+                max={1440}
+                required
+                defaultValue={values?.minutes}
+              />
+            </label>
+            <label>
+              Main protein / variety
+              <input
+                name="protein"
                 required
                 maxLength={200}
-                value={item.name}
-                onChange={(e) =>
-                  editIngredient(index, { name: e.target.value })
+                placeholder="e.g. lentils"
+                defaultValue={
+                  draft
+                    ? draft.protein
+                    : recipe?.facts?.needsReview
+                      ? undefined
+                      : recipe?.protein
                 }
               />
             </label>
-            <div className="ingredientNumbers">
+          </div>
+          <p className="helper">
+            Maximum batch size is what you can realistically cook with your
+            equipment. Scaling changes quantities, not cooking time.
+            {reference &&
+              ' Imported recipes start conservatively at the original yield. Review leftover and potluck suitability yourself.'}
+          </p>
+          <label className="checkLabel">
+            <input
+              name="leftovers"
+              type="checkbox"
+              defaultChecked={values?.leftovers ?? false}
+            />{' '}
+            Good for leftover lunches
+          </label>
+          <label className="checkLabel">
+            <input
+              name="potluck"
+              type="checkbox"
+              defaultChecked={values?.potluck ?? false}
+            />{' '}
+            Suitable for a potluck
+          </label>
+          {recipe?.facts && (
+            <details>
+              <summary>Original ingredient facts</summary>
+              <ul>
+                {recipe.facts.ingredientLines.map((line, index) => (
+                  <li key={index}>{line}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <h3>Ingredients</h3>
+          <p className="helper">
+            Use consistent ingredient names to merge groceries. Cups/spoons use
+            US kitchen measures (240/15/5 ml). No mass-to-volume guessing.
+          </p>
+          {ingredients.map((item, index) => (
+            <div className="ingredientEditor" key={index}>
+              {item.review && (
+                <p className="helper">
+                  Source: {item.review.sourceText}. {item.review.reason}
+                </p>
+              )}
               <label>
-                Amount
+                Ingredient {index + 1}
                 <input
-                  type="number"
-                  step="any"
-                  min="0.001"
-                  max="100000"
                   required
-                  value={Number.isNaN(item.amount) ? '' : item.amount}
+                  maxLength={200}
+                  value={item.name}
                   onChange={(e) =>
-                    editIngredient(index, { amount: e.target.valueAsNumber })
+                    editIngredient(index, { name: e.target.value })
                   }
                 />
               </label>
-              <label>
-                Unit
-                <select
-                  value={item.unit}
-                  required
-                  onChange={(e) =>
-                    editIngredient(index, {
-                      unit: units.find((unit) => unit === e.target.value)!,
-                    })
+              <div className="ingredientNumbers">
+                <label>
+                  Amount
+                  <input
+                    type="number"
+                    step="any"
+                    min="0.001"
+                    max="100000"
+                    required
+                    value={Number.isNaN(item.amount) ? '' : item.amount}
+                    onChange={(e) =>
+                      editIngredient(index, { amount: e.target.valueAsNumber })
+                    }
+                  />
+                </label>
+                <label>
+                  Unit
+                  <select
+                    value={item.unit}
+                    required
+                    onChange={(e) =>
+                      editIngredient(index, {
+                        unit: units.find((unit) => unit === e.target.value)!,
+                      })
+                    }
+                  >
+                    <option value="" disabled>
+                      Choose a unit
+                    </option>
+                    {units.map((unit) => (
+                      <option key={unit}>{unit}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Category
+                  <select
+                    value={item.category}
+                    required
+                    onChange={(e) =>
+                      editIngredient(index, {
+                        category:
+                          categories.find((c) => c === e.target.value) ??
+                          'Other',
+                      })
+                    }
+                  >
+                    <option value="" disabled>
+                      Choose a category
+                    </option>
+                    {categories.map((category) => (
+                      <option key={category}>{category}</option>
+                    ))}
+                  </select>
+                </label>
+                <Button
+                  className="iconButton"
+                  aria-label={`Remove ingredient ${index + 1}`}
+                  disabled={ingredients.length === 1}
+                  onClick={() =>
+                    setIngredients((items) =>
+                      items.filter((_, i) => i !== index),
+                    )
                   }
                 >
-                  <option value="" disabled>
-                    Choose a unit
-                  </option>
-                  {units.map((unit) => (
-                    <option key={unit}>{unit}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Category
-                <select
-                  value={item.category}
-                  required
-                  onChange={(e) =>
-                    editIngredient(index, {
-                      category:
-                        categories.find((c) => c === e.target.value) ?? 'Other',
-                    })
-                  }
-                >
-                  <option value="" disabled>
-                    Choose a category
-                  </option>
-                  {categories.map((category) => (
-                    <option key={category}>{category}</option>
-                  ))}
-                </select>
-              </label>
-              <Button
-                className="iconButton"
-                aria-label={`Remove ingredient ${index + 1}`}
-                disabled={ingredients.length === 1}
-                onClick={() =>
-                  setIngredients((items) => items.filter((_, i) => i !== index))
-                }
-              >
-                <X size={18} />
-              </Button>
+                  <X size={18} />
+                </Button>
+              </div>
             </div>
-          </div>
-        ))}
-        <Button
-          className="secondaryButton"
-          disabled={ingredients.length >= 60}
-          onClick={() =>
-            setIngredients((items) => [
-              ...items,
-              { name: '', amount: NaN, unit: '', category: '' },
-            ])
-          }
-        >
-          <Plus size={18} /> Add ingredient
-        </Button>
-        <label>
-          Instructions (one step per line)
-          <textarea
-            name="instructions"
-            rows={6}
-            required={!reference}
-            defaultValue={values?.instructions.join('\n')}
-          />
-        </label>
-        {reference && recipe.sourceUrl && (
-          <a
+          ))}
+          <Button
             className="secondaryButton"
-            href={recipe.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+            disabled={ingredients.length >= 60}
+            onClick={() =>
+              setIngredients((items) => [
+                ...items,
+                { name: '', amount: NaN, unit: '', category: '' },
+              ])
+            }
           >
-            View the original on {sourceName(recipe.sourceUrl)}
-          </a>
-        )}
-        <label className="checkLabel">
-          <input type="checkbox" required />
-          {reference
-            ? 'I reviewed the ingredient amounts, serving yield and practical batch size. Any photo I upload is mine or permitted.'
-            : aiDraft
-              ? 'I reviewed this AI-drafted recipe: amounts, servings, batch size and steps.'
-              : 'These are my own recipe details, or I have permission to save them.'}
-        </label>
-        <label>
-          Your recipe photo (optional)
-          <input
-            name="image"
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-          />
-        </label>
-        <div className="buttonRow">
-          <Button className="secondaryButton" onClick={leave}>
-            Cancel
+            <Plus size={18} /> Add ingredient
           </Button>
-          <Button className="primaryButton" type="submit">
-            {saving ? 'Saving...' : 'Save recipe'}
-          </Button>
-        </div>
-      </fieldset>
+          <label>
+            Instructions (one step per line)
+            <textarea
+              name="instructions"
+              rows={6}
+              required={!reference}
+              defaultValue={values?.instructions.join('\n')}
+            />
+          </label>
+          {reference && recipe.sourceUrl && (
+            <a
+              className="secondaryButton"
+              href={recipe.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View the original on {sourceName(recipe.sourceUrl)}
+            </a>
+          )}
+          <label className="checkLabel">
+            <input type="checkbox" required />
+            {reference
+              ? 'I reviewed the ingredient amounts, serving yield and practical batch size. Any photo I upload is mine or permitted.'
+              : aiDraft
+                ? 'I reviewed this AI-drafted recipe: amounts, servings, batch size and steps.'
+                : 'These are my own recipe details, or I have permission to save them.'}
+          </label>
+          <label>
+            Your recipe photo (optional)
+            <input
+              name="image"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+            />
+          </label>
+          <div className="buttonRow">
+            <Button className="secondaryButton" onClick={leave}>
+              Cancel
+            </Button>
+            <Button className="primaryButton" type="submit">
+              {saving ? 'Saving...' : 'Save recipe'}
+            </Button>
+          </div>
+        </fieldset>
+      )}
       {ai && aiDraft && (
         <PromptBar
           sticky

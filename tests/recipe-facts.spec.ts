@@ -13,9 +13,7 @@ test('imports source facts, reviews a recipe and plans only reviewed quantities'
   // Unreviewed imports wait in the review list, not Kitchen favorites.
   await expect(page.getByText(/10 need a quick review/)).toBeVisible()
   await expect(
-    page
-      .locator('.catalogSection')
-      .getByRole('button', { name: 'Review details' }),
+    page.locator('.catalogSection').locator('.libraryRow'),
   ).toHaveCount(6)
   expect(
     (
@@ -33,7 +31,7 @@ test('imports source facts, reviews a recipe and plans only reviewed quantities'
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
   const salmon = tiffyRecipeFacts[5]
   const row = page.locator('.recipeEntry').filter({ hasText: salmon.title })
-  await row.getByRole('button', { name: 'Review details' }).click()
+  await row.getByRole('button', { name: salmon.title, exact: true }).click()
   await expect(page.getByLabel('Max batch servings')).toHaveValue('2')
   // Directions are optional for an import and can be added here.
   await expect(
@@ -55,6 +53,9 @@ test('imports source facts, reviews a recipe and plans only reviewed quantities'
     .getByRole('checkbox', { name: /I reviewed the ingredient amounts/ })
     .check()
   await page.getByRole('button', { name: 'Save recipe', exact: true }).click()
+  await row
+    .getByRole('button', { name: `Recipe actions for ${salmon.title}` })
+    .click()
   await expect(
     row.getByRole('button', { name: 'Edit', exact: true }),
   ).toBeVisible()
@@ -87,7 +88,7 @@ test('unresolved source amounts stay blank until the household reviews them', as
   const state = initialState([recipe])
   kitchen.state = state
   await page.goto('./#recipes')
-  await page.getByRole('button', { name: 'Review details' }).click()
+  await page.getByRole('button', { name: recipe.title, exact: true }).click()
   const chili = page
     .locator('.ingredientEditor')
     .filter({ hasText: '1-3 Red Chili' })
@@ -108,6 +109,9 @@ test('unresolved source amounts stay blank until the household reviews them', as
     .getByRole('combobox', { name: 'Unit', exact: true })
     .selectOption('each')
   await page.getByRole('button', { name: 'Save recipe', exact: true }).click()
+  await page
+    .getByRole('button', { name: `Recipe actions for ${recipe.title}` })
+    .click()
   await expect(
     page
       .locator('.recipeEntry')

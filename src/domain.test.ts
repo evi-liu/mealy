@@ -8,6 +8,7 @@ import {
   initialState,
   newWeek,
   placeRemix,
+  removeRecipe,
   shortlist,
   stateSchema,
   swapRecipe,
@@ -35,6 +36,67 @@ function ready(): State {
     ),
   }
 }
+describe('recipe deletion', () => {
+  it('removes shortlist references and invalidates an affected plan without discarding pantry', () => {
+    const state = ready()
+    const id = state.recipes[0].id
+    state.history = [id, state.recipes[1].id]
+    state.loved = [id]
+    state.cooked = [id]
+    state.blocked = [id]
+    state.plan = [{ recipeId: id, role: 'dinner', servings: 4, pinned: true }]
+    state.phase = 'plan'
+    state.confirmed = true
+    state.checked = ['rice:g']
+    state.pantry = [
+      { id: 'stock', name: 'rice', kind: 'staple', amount: 1, unit: 'cup' },
+    ]
+    const next = removeRecipe(state, id)
+    expect(next.recipes.some((recipe) => recipe.id === id)).toBe(false)
+    expect(next.queue).not.toContain(id)
+    expect(next.decisions[id]).toBeUndefined()
+    expect(next.history).not.toContain(id)
+    expect(next.loved).toEqual([])
+    expect(next.cooked).toEqual([])
+    expect(next.blocked).toEqual([id])
+    expect(next.plan).toEqual([])
+    expect(next.checked).toEqual([])
+    expect(next.confirmed).toBe(false)
+    expect(next.phase).toBe('swipe')
+    expect(next.pantry).toEqual(state.pantry)
+    expect(state.recipes.some((recipe) => recipe.id === id)).toBe(true)
+    expect(state.decisions[id]).toBe('like')
+    expect(stateSchema.safeParse(next).success).toBe(true)
+  })
+  it('preserves an unrelated plan and refuses to silently delete missing recipes', () => {
+    const state = ready()
+    state.plan = buildPlan(state)
+    state.phase = 'plan'
+    state.confirmed = true
+    state.checked = ['rice:g']
+    const unused = state.recipes.find(
+      (recipe) => !state.plan.some((slot) => slot.recipeId === recipe.id),
+    )!
+    const next = removeRecipe(state, unused.id)
+    expect(next.plan).toEqual(state.plan)
+    expect(next.confirmed).toBe(true)
+    expect(next.checked).toEqual(state.checked)
+    expect(next.phase).toBe('plan')
+    expect(() => removeRecipe(next, unused.id)).toThrow('already removed')
+  })
+  it('returns to setup when deleting the last planned recipe', () => {
+    const recipe = fixtureRecipes[0]
+    const state = initialState([recipe])
+    state.queue = [recipe.id]
+    state.phase = 'plan'
+    state.plan = [
+      { recipeId: recipe.id, role: 'dinner', servings: 4, pinned: true },
+    ]
+    const next = removeRecipe(state, recipe.id)
+    expect(next.phase).toBe('setup')
+    expect(next.recipes).toEqual([])
+  })
+})
 describe('weekly targets', () => {
   it('defaults to two recipes and 14 home servings, with both toggles off', () => {
     const state = initialState()

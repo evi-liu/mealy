@@ -52,8 +52,10 @@ const changeLabel = {
 export function LovedButton({
   loved,
   onToggle,
+  compact = false,
 }: {
   loved: boolean
+  compact?: boolean
   /** Resolves true once the change is saved. */
   onToggle: () => Promise<boolean>
 }) {
@@ -65,14 +67,15 @@ export function LovedButton({
   }
   return (
     <Button
-      className="textButton"
+      className={compact ? 'iconButton libraryLove' : 'textButton'}
       aria-pressed={loved}
+      aria-label={loved ? 'Loved' : 'We loved this'}
       onClick={() => void toggle()}
     >
       <span className="loveHeart" ref={heart}>
         <Heart size={15} fill={loved ? 'currentColor' : 'none'} />
       </span>
-      {loved ? 'Loved' : 'We loved this'}
+      {!compact && (loved ? 'Loved' : 'We loved this')}
     </Button>
   )
 }

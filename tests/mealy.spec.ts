@@ -28,9 +28,15 @@ test('empty recipe library keeps setup compact and recipe entry accessible', asy
   ).toBeDisabled()
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Add recipe' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Recipe link' })).toHaveCount(
+    0,
+  )
+  await page.getByRole('button', { name: 'Add recipe' }).click()
+  await expect(page.getByRole('button', { name: /Add with AI/ })).toBeVisible()
+  await page.getByRole('button', { name: /Link a website/ }).click()
   await expect(page.getByRole('textbox', { name: 'Recipe link' })).toBeVisible()
 })
-test('recipe add action floats above navigation and hides in the editor', async ({
+test('recipe plus opens an accessible choice sheet and hides in the editor', async ({
   page,
 }) => {
   await page.goto('./#recipes')
@@ -39,29 +45,38 @@ test('recipe add action floats above navigation and hides in the editor', async 
   const header = (await page
     .locator('.recipeLibrary .screenHeader')
     .boundingBox())!
-  const first = (await page.locator('.recipeEntry').first().boundingBox())!
-  expect(first.y - header.y - header.height).toBeGreaterThanOrEqual(12)
-  expect(first.y - header.y - header.height).toBeLessThanOrEqual(20)
   const initial = (await add.boundingBox())!
-  const nav = (await page
-    .getByRole('navigation', { name: 'Main navigation' })
-    .boundingBox())!
-  expect(initial.y + initial.height).toBeLessThan(nav.y)
+  expect(initial.y).toBeGreaterThanOrEqual(header.y)
+  expect(initial.y + initial.height).toBeLessThanOrEqual(
+    header.y + header.height,
+  )
   expect(initial.height).toBeGreaterThanOrEqual(44)
   expect(initial.x + initial.width).toBeLessThanOrEqual(
     page.viewportSize()!.width - 16,
   )
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
-  const scrolled = (await add.boundingBox())!
-  expect(scrolled.y).toBeCloseTo(initial.y, 0)
-  const lastControl = (await page
-    .getByRole('button', { name: 'Import' })
-    .boundingBox())!
-  expect(lastControl.y + lastControl.height).toBeLessThan(scrolled.y)
   await add.click()
+  const sheet = page.getByRole('dialog', { name: 'Add a recipe' })
+  await expect(sheet).toBeVisible()
+  await expect(sheet.getByRole('button', { name: /Add with AI/ })).toBeVisible()
+  await expect(
+    sheet.getByRole('button', { name: /Link a website/ }),
+  ).toBeVisible()
+  expect(
+    (await new AxeBuilder({ page }).include('[role="dialog"]').analyze())
+      .violations,
+  ).toEqual([])
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(add).toBeFocused()
+  await add.click()
+  await page.getByRole('button', { name: /Add with AI/ }).click()
   await expect(add).toHaveCount(0)
-  await expect(page.getByLabel('Recipe name', { exact: true })).toBeInViewport()
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.getByLabel('Describe a recipe to add')).toBeFocused()
+  await expect(page.getByLabel('Recipe name', { exact: true })).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: 'Save recipe', exact: true }),
+  ).toHaveCount(0)
+  await page.getByRole('button', { name: 'Back to recipes' }).click()
   await expect(add).toBeVisible()
   await page.getByRole('button', { name: 'Pantry', exact: true }).click()
   await expect(add).toHaveCount(0)
@@ -153,21 +168,26 @@ test('swiping honors skips, undo, keyboard controls and recipe details', async (
   await page.getByRole('button', { name: 'Build my week' }).click()
   await expect(page.locator('.mealList')).not.toContainText(firstTitle)
 })
-test('adds an actual recipe with precise unit selections', async ({ page }) => {
+test('existing recipes remain editable with precise unit selections', async ({
+  page,
+  kitchen,
+}) => {
+  const original = kitchen.state.recipes[0]
+  kitchen.state = initialState([
+    {
+      ...original,
+      source: 'own',
+      ingredients: [
+        { name: 'rice', amount: 1, unit: 'cup', category: 'Pantry' },
+      ],
+    },
+  ])
   await start(page)
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
-  await page.getByRole('button', { name: 'Add recipe' }).click()
-  // The form starts blank: no assumed yield, time, batch or ingredient.
-  for (const label of [
-    'Makes (servings)',
-    'Max batch servings',
-    'Total minutes',
-  ])
-    await expect(page.getByLabel(label)).toHaveValue('')
-  await expect(page.getByLabel('Amount', { exact: true })).toHaveValue('')
-  await expect(
-    page.getByRole('checkbox', { name: 'Good for leftover lunches' }),
-  ).not.toBeChecked()
+  await page
+    .getByRole('button', { name: `Recipe actions for ${original.title}` })
+    .click()
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
   await page.getByLabel('Recipe name', { exact: true }).fill('Our rice')
   await page.getByLabel('Makes (servings)').fill('4')
   await page.getByLabel('Max batch servings').fill('8')
@@ -188,8 +208,10 @@ test('adds an actual recipe with precise unit selections', async ({ page }) => {
     .getByRole('checkbox', { name: /These are my own recipe details/ })
     .check()
   await page.getByRole('button', { name: 'Save recipe', exact: true }).click()
-  // An untouched form goes straight back without asking.
+  expect(kitchen.state.recipes).toHaveLength(1)
+  // An untouched AI composer goes straight back without asking.
   await page.getByRole('button', { name: 'Add recipe' }).click()
+  await page.getByRole('button', { name: /Add with AI/ }).click()
   await page.getByRole('button', { name: 'Back to recipes' }).click()
   await expect(page.getByRole('button', { name: 'Add recipe' })).toBeVisible()
   await page.getByRole('button', { name: 'Our rice', exact: true }).click()
@@ -376,6 +398,8 @@ test('importing a link opens Add recipe filled in by AI, never fetching from the
   })
   await start(page)
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
+  await page.getByRole('button', { name: 'Add recipe', exact: true }).click()
+  await page.getByRole('button', { name: /Link a website/ }).click()
   const link = page.getByRole('textbox', { name: 'Recipe link' })
   await link.fill('not a link')
   await page.getByRole('button', { name: 'Import' }).click()

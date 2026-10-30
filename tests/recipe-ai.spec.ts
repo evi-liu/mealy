@@ -8,6 +8,7 @@ test('AI drafts a new recipe into the form, refines it, and saves only after rev
   await page.goto('./')
   await page.getByRole('button', { name: 'Recipes', exact: true }).click()
   await page.getByRole('button', { name: 'Add recipe' }).click()
+  await page.getByRole('button', { name: /Add with AI/ }).click()
 
   const describe = page.getByRole('textbox', {
     name: 'Describe a recipe to add',
@@ -69,6 +70,7 @@ test('AI drafts a new recipe into the form, refines it, and saves only after rev
   ).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Add recipe' }).click()
+  await page.getByRole('button', { name: /Add with AI/ }).click()
   await page
     .getByRole('textbox', { name: 'Describe a recipe to add' })
     .fill('Bean soup')
@@ -88,7 +90,10 @@ test('AI drafts a new recipe into the form, refines it, and saves only after rev
   })
   await expect(saved).toContainText('AI-DRAFTED')
   await saved
-    .getByRole('button', { name: 'Garlicky white bean & greens soup' })
+    .getByRole('button', {
+      name: 'Garlicky white bean & greens soup',
+      exact: true,
+    })
     .click()
   await expect(page.getByRole('dialog')).toContainText('drafted with AI')
   // The card follows the shared unit preference: US kitchen by default.
@@ -204,6 +209,7 @@ test('a remix can replace a household recipe after review', async ({
 }) => {
   await openRecipes(page)
   await page.getByRole('button', { name: 'Add recipe' }).click()
+  await page.getByRole('button', { name: /Add with AI/ }).click()
   await page
     .getByRole('textbox', { name: 'Describe a recipe to add' })
     .fill('Bean soup')
