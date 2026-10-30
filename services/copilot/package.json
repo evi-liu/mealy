@@ -14,7 +14,10 @@
   },
   "dependencies": {
     "@github/copilot-sdk": "1.0.28",
-    "zod": "^4.0.0"
+    "zod": "^4.6.7"
+  },
+  "overrides": {
+    "zod": "$zod"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -49,6 +49,9 @@ model lookup failure without printing credentials or raw provider responses.
 For managed hosting, use the platform's secret controls and `.env.example`
 as the list of required variable names instead.
 
+The Zod override keeps the SDK's transitive copy on a patched 4.x release
+for GHSA-mrhx-c7xc-m3w5; retain it until the SDK dependency is patched upstream.
+
 `npm test` builds and uses only mocked model calls. `npm start` starts the SDK
 runtime and checks identity/model availability, but does not generate a recipe.
 The listener defaults to loopback port 8787. `GET /health` reports readiness;
