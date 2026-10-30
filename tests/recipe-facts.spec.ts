@@ -1,24 +1,19 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { initialState, makeBookmark } from '../src/domain'
+import { initialState } from '../src/domain'
 import { tiffyRecipeFacts } from '../src/recipeFacts'
 
 test('imports source facts, reviews a recipe and plans only reviewed quantities', async ({
   page,
 }) => {
-  const state = initialState()
-  state.bookmarks = tiffyRecipeFacts.map((recipe) =>
-    makeBookmark(recipe.title, recipe.sourceUrl!),
-  )
+  // Source-fact imports saved before the catalog existed, still unreviewed.
+  const state = initialState(tiffyRecipeFacts)
   await page.addInitScript((state) => {
     if (!localStorage.getItem('mealy-demo-v1'))
       localStorage.setItem('mealy-demo-v1', JSON.stringify(state))
   }, state)
   await page.goto('./#recipes')
   await page.getByRole('button', { name: 'Try the demo' }).click()
-  await page
-    .getByRole('button', { name: 'Add recipe facts for 10 Tiffy Cooks links' })
-    .click()
   // Unreviewed imports wait in the review list, not Kitchen favorites.
   await expect(page.getByText(/10 need a quick review/)).toBeVisible()
   await expect(
@@ -33,10 +28,8 @@ test('imports source facts, reviews a recipe and plans only reviewed quantities'
         .analyze()
     ).violations,
   ).toEqual([])
-  await expect(page.locator('.bookmarks article')).toHaveCount(0)
-  await expect(
-    page.getByRole('button', { name: /Add recipe facts for/ }),
-  ).toHaveCount(0)
+  // Links are no longer kept on their own; importing makes a recipe.
+  await expect(page.getByText('Saved links')).toHaveCount(0)
   await page.getByRole('button', { name: 'Plan', exact: true }).click()
   await expect(
     page.getByRole('button', { name: 'Start choosing recipes' }),

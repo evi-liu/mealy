@@ -1,45 +1,31 @@
 import { useState } from 'react'
 import { Button } from '@base-ui/react/button'
-import { ArrowUpRight, Sparkles, X } from 'lucide-react'
-import { sourceName, type Bookmark, type State } from './domain'
-import type { HouseholdStore } from './store'
-import { addRecipeFacts, availableRecipeFacts } from './recipeFacts'
+import { Sparkles } from 'lucide-react'
 
 /**
  * Paste a recipe link and AI reads the page into a new recipe to check and
- * save. Links saved before importing existed stay listed until imported.
+ * save. Importing always creates a recipe; links are not kept on their own.
  */
 export function Bookmarks({
-  state,
-  change,
-  onManual,
   onImport,
   demo,
 }: {
-  state: State
-  change: HouseholdStore['change']
-  onManual: (bookmark: Bookmark) => void
   /** Resolves to an error message, or nothing once the form is open. */
   onImport: (url: string) => Promise<string | void>
   demo: boolean
 }) {
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
-  const [importing, setImporting] = useState<string | null>(null)
-  const available = availableRecipeFacts(state)
-  const saved = state.bookmarks.filter(
-    (bookmark) =>
-      !state.recipes.some((recipe) => recipe.sourceUrl === bookmark.url),
-  )
-  async function run(link: string) {
+  const [importing, setImporting] = useState(false)
+  async function run() {
     setError('')
-    setImporting(link)
+    setImporting(true)
     try {
-      const failure = await onImport(link.trim())
+      const failure = await onImport(url.trim())
       if (failure) setError(failure)
-      else if (link === url) setUrl('')
+      else setUrl('')
     } finally {
-      setImporting(null)
+      setImporting(false)
     }
   }
   return (
@@ -54,7 +40,7 @@ export function Bookmarks({
         className="renameForm importLink"
         onSubmit={(e) => {
           e.preventDefault()
-          void run(url)
+          void run()
         }}
       >
         <input
@@ -65,13 +51,13 @@ export function Bookmarks({
           required
           maxLength={2048}
           value={url}
-          readOnly={importing !== null}
+          readOnly={importing}
           onChange={(e) => setUrl(e.target.value)}
         />
         <Button
           className="primaryButton"
           type="submit"
-          disabled={importing !== null}
+          disabled={importing}
           focusableWhenDisabled
         >
           <Sparkles size={17} /> {importing ? 'Reading...' : 'Import'}
@@ -87,62 +73,6 @@ export function Bookmarks({
           {error}
         </p>
       )}
-      {available.length > 0 && (
-        <div className="section">
-          <Button
-            className="secondaryButton"
-            onClick={() => void change(addRecipeFacts, { kind: 'recipe' })}
-          >
-            Add recipe facts for {available.length} Tiffy Cooks links
-          </Button>
-        </div>
-      )}
-      {saved.length > 0 && <h3>Saved links</h3>}
-      {saved.map((bookmark) => (
-        <article className="mealRow" key={bookmark.id}>
-          <div className="mealHeading">
-            <span className="eyebrow">{sourceName(bookmark.url)}</span>
-            <Button
-              className="iconButton"
-              aria-label={`Remove bookmark ${bookmark.title}`}
-              onClick={() =>
-                void change(
-                  (s) => ({
-                    ...s,
-                    bookmarks: s.bookmarks.filter(
-                      (item) => item.id !== bookmark.id,
-                    ),
-                  }),
-                  { kind: 'bookmark', recipeId: bookmark.id },
-                )
-              }
-            >
-              <X size={17} />
-            </Button>
-          </div>
-          <h3>{bookmark.title}</h3>
-          <div className="buttonRow">
-            <Button
-              className="secondaryButton"
-              disabled={importing !== null}
-              onClick={() => void run(bookmark.url)}
-            >
-              <Sparkles size={16} /> Import with AI
-            </Button>
-            <a
-              href={bookmark.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="secondaryButton"
-            >
-              Open <ArrowUpRight size={16} />
-            </a>
-          </div>
-          <Button className="textButton" onClick={() => onManual(bookmark)}>
-            Enter the details myself
-          </Button>
-        </article>
-      ))}
     </section>
   )
 }
