@@ -7,6 +7,14 @@ export default defineConfig({
   projects: [
     { name: 'mobile-chromium', use: { ...devices['Pixel 7'] } },
     { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } },
+    // Firefox has no mobile emulation; check it at a phone-sized viewport.
+    {
+      name: 'firefox-phone',
+      use: {
+        ...devices['Desktop Firefox'],
+        viewport: { width: 390, height: 844 },
+      },
+    },
   ],
   webServer: {
     command: 'npm run build && npm run preview -- --port 4175 --strictPort',

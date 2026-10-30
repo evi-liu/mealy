@@ -33,7 +33,7 @@ Without public Supabase configuration, choose **Try the demo**. Live failures ne
 
 ```sh
 npm test                    # deterministic planning/arithmetic + actual SQL/RLS on PGlite
-npx playwright install chromium webkit
+npx playwright install chromium webkit firefox
 npm run test:e2e             # mobile Chrome/Safari flows, keyboard/pointer, accessibility
 npm run build               # strict TypeScript + production app/service worker
 npm run format:check

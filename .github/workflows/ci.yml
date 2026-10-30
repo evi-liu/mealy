@@ -20,7 +20,7 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno check supabase/functions/rank-recipes/index.ts supabase/functions/recipe-draft/index.ts
-      - run: npx playwright install --with-deps chromium webkit
+      - run: npx playwright install --with-deps chromium webkit firefox
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
