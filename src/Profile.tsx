@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@base-ui/react/button'
-import { Check, LogOut, Plus, Search, UserRound, X } from 'lucide-react'
+import {
+  Check,
+  Download,
+  LogOut,
+  Plus,
+  Search,
+  UserRound,
+  X,
+} from 'lucide-react'
 import { supabase } from './store'
 import { sourceName } from './domain'
 import { useConfirm } from './confirm'
@@ -462,7 +470,75 @@ function InactiveHouseholds({ onSwitched }: { onSwitched: () => void }) {
 }
 
 /** The recipe sites this household's catalog draws from. */
-function SourcesCard() {
+const when = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, {
+    weekday: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+
+/** "Fetch new recipes": up to 50 more, at most once every 12 hours. */
+function FetchRecipes({ onFetched }: { onFetched: () => void }) {
+  const [nextAt, setNextAt] = useState<string | null>(null)
+  const [fetching, setFetching] = useState(false)
+  const [status, setStatus] = useState('')
+  const [error, setError] = useState('')
+  useEffect(() => {
+    householdApi
+      .nextFetch()
+      .then(setNextAt)
+      .catch(() => {})
+  }, [])
+  const waiting = nextAt !== null && new Date(nextAt).getTime() > Date.now()
+  return (
+    <div className="fetchRecipes">
+      <Button
+        className="secondaryButton"
+        disabled={fetching || waiting}
+        focusableWhenDisabled
+        onClick={async () => {
+          setFetching(true)
+          setError('')
+          setStatus('')
+          try {
+            const result = await householdApi.fetchRecipes()
+            if (result.ok) {
+              setStatus(
+                result.imported
+                  ? `Added ${result.imported} new recipe${result.imported === 1 ? '' : 's'} to your catalog${result.partial ? ' (more next time)' : ''}.`
+                  : 'No new recipes this time; your sources are up to date.',
+              )
+              onFetched()
+            } else setError(result.error)
+            setNextAt(await householdApi.nextFetch().catch(() => null))
+          } catch (e) {
+            setError(message(e))
+          } finally {
+            setFetching(false)
+          }
+        }}
+      >
+        <Download size={16} />
+        {fetching ? 'Fetching recipes...' : 'Fetch new recipes'}
+      </Button>
+      <p className="helper" role="status">
+        {fetching
+          ? 'Reading your sources politely, one page at a time. This can take a minute or two.'
+          : status ||
+            (waiting
+              ? `Up to 50 new recipes, once every 12 hours. Next fetch: ${when(nextAt!)}.`
+              : 'Up to 50 new recipes from your sources, once every 12 hours.')}
+      </p>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function SourcesCard({ onFetched }: { onFetched: () => void }) {
   const [sources, setSources] = useState<string[] | null>(null)
   const [error, setError] = useState('')
   const [refused, setRefused] = useState('')
@@ -519,6 +595,7 @@ function SourcesCard() {
         {sources?.length === 0 && (
           <p className="helper">No sources yet. Add a recipe site below.</p>
         )}
+        {!!sources?.length && <FetchRecipes onFetched={onFetched} />}
         <form
           className="renameForm addSource"
           onSubmit={async (e) => {
@@ -574,9 +651,11 @@ function SourcesCard() {
 
 export function ProfileScreen({
   onHouseholdChanged,
+  onCatalogChanged,
   exit,
 }: {
   onHouseholdChanged: () => void
+  onCatalogChanged: () => void
   exit: () => void
 }) {
   const me = useMe()
@@ -591,7 +670,7 @@ export function ProfileScreen({
       <MeCard me={me} />
       <RequestsInbox onJoined={onHouseholdChanged} />
       <HouseholdCard onLeft={onHouseholdChanged} />
-      <SourcesCard />
+      <SourcesCard onFetched={onCatalogChanged} />
       <InactiveHouseholds onSwitched={onHouseholdChanged} />
       <SignOut exit={exit} />
     </main>

@@ -1895,3 +1895,9 @@ ul.changeList {
 .sourceRefused {
   margin: -6px 0 16px;
 }
+.fetchRecipes {
+  margin-top: 8px;
+}
+.fetchRecipes .secondaryButton {
+  margin-bottom: 4px;
+}

@@ -138,6 +138,25 @@ export const householdApi = {
     return data
   },
   addSource: (url: string) => call<string>('add_source', { p_url: url }),
+  /** When the household may fetch new recipes again; null means now. */
+  nextFetch: () => call<string | null>('next_catalog_fetch'),
+  /** Imports up to 50 new catalog recipes from the household's sources. */
+  async fetchRecipes(): Promise<
+    | { ok: true; imported: number; partial: boolean }
+    | { ok: false; nextAt?: string; error: string }
+  > {
+    const { data, error } = await client().functions.invoke('catalog-import', {
+      body: {},
+    })
+    if (!error)
+      return { ok: true, imported: data.imported, partial: data.partial }
+    const context = (error as { context?: unknown }).context
+    if (context instanceof Response && context.status === 429) {
+      const body = await context.json().catch(() => ({}))
+      return { ok: false, nextAt: body.nextAt, error: body.error }
+    }
+    return { ok: false, error: await draftErrorMessage(error) }
+  },
   removeSource: (domain: string) =>
     call<null>('remove_source', { p_domain: domain }),
   /** Deactivated households this person owns and can switch back to. */

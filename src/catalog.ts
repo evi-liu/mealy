@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { z } from 'zod'
 import {
   normalize,
@@ -138,6 +138,8 @@ export type Catalog = {
   review: Recipe[]
   loaded: boolean
   error: string
+  /** Loads the catalog again, e.g. after fetching new recipes. */
+  reload: () => void
 }
 
 export function splitCatalog(entries: CatalogEntry[]) {
@@ -150,12 +152,14 @@ export function splitCatalog(entries: CatalogEntry[]) {
 
 /** Loads the shared catalog once per signed-in session. */
 export function useCatalog(): Catalog {
-  const [catalog, setCatalog] = useState<Catalog>({
+  const [loads, setLoads] = useState(0)
+  const [catalog, setCatalog] = useState<Omit<Catalog, 'reload'>>({
     ready: [],
     review: [],
     loaded: false,
     error: '',
   })
+  const reload = useCallback(() => setLoads((n) => n + 1), [])
   useEffect(() => {
     if (!supabase) return
     let active = true
@@ -184,8 +188,8 @@ export function useCatalog(): Catalog {
     return () => {
       active = false
     }
-  }, [])
-  return catalog
+  }, [loads])
+  return { ...catalog, reload }
 }
 
 export { normalize }

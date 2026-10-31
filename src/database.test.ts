@@ -102,6 +102,7 @@ beforeAll(async () => {
     '202610300005_catalog_directions.sql',
     '202610300006_household_sources.sql',
     '202610300007_household_switching.sql',
+    '202610300008_catalog_manual_fetch.sql',
   ])
     await db.exec(
       await readFile(
@@ -642,6 +643,39 @@ describe('actual migration on embedded PostgreSQL', () => {
     // Alice's household kept its other members when Carol moved on.
     await asUser(alice, async () =>
       expect(await myHousehold()).toBe(householdA),
+    )
+  })
+  it('lets each household fetch catalog recipes at most once every 12 hours', async () => {
+    await asUser(alice, async () => {
+      const next = () =>
+        db
+          .query<{ at: string | null }>(
+            'select public.next_catalog_fetch() as at',
+          )
+          .then((r) => r.rows[0].at)
+      const claim = () =>
+        db
+          .query<{ at: string | null }>(
+            'select public.claim_catalog_fetch() as at',
+          )
+          .then((r) => r.rows[0].at)
+      expect(await next()).toBeNull()
+      expect(await claim()).toBeNull()
+      const blockedUntil = await claim()
+      expect(blockedUntil).not.toBeNull()
+      expect(new Date(blockedUntil!).getTime()).toBeGreaterThan(
+        Date.now() + 11 * 3600 * 1000,
+      )
+      expect(await next()).toEqual(blockedUntil)
+      await expect(
+        db.query('select * from public.catalog_fetches'),
+      ).rejects.toThrow('permission denied')
+    })
+    // The limit is per household, and only members may claim.
+    await asUser(dave, () =>
+      expect(db.query('select public.claim_catalog_fetch()')).rejects.toThrow(
+        'Household access denied',
+      ),
     )
   })
   it('revokes access immediately when an allowlist entry is removed', async () => {

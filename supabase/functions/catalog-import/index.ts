@@ -226,6 +226,148 @@ function extractFacts(html: string) {
   }
 }
 
+type Admin = ReturnType<typeof createClient>
+
+/** Fetches one post and records it; true when it held a recipe. */
+async function importPage(admin: Admin, source: Source, entry: Entry) {
+  await sleep(DELAY_MS)
+  let status: 'recipe' | 'not_recipe' | 'failed' = 'failed'
+  try {
+    const facts = extractFacts(await fetchText(entry.url, source))
+    if (facts) {
+      const slug = new URL(entry.url).pathname
+        .replace(/^\/|\/$/g, '')
+        .slice(0, 150)
+      const { error } = await admin.from('catalog_recipes').upsert({
+        id: `${source.replace(/\.com$/, '').replace(/\./g, '-')}:${slug}`,
+        source,
+        url: entry.url,
+        ...facts,
+        published_at: facts.published_at ?? entry.lastmod,
+        fetched_at: new Date().toISOString(),
+      })
+      if (error) throw error
+      status = 'recipe'
+    } else status = 'not_recipe'
+  } catch (error) {
+    console.error(
+      'Catalog page failed',
+      source,
+      error instanceof Error ? error.message : error,
+    )
+  }
+  await admin.from('catalog_pages').upsert({
+    url: entry.url,
+    source,
+    status,
+    lastmod: entry.lastmod,
+    checked_at: new Date().toISOString(),
+  })
+  return status === 'recipe'
+}
+
+/** Posts on a site this importer may read and hasn't seen, newest first. */
+async function unseenEntries(admin: Admin, source: Source) {
+  const policy = await sitePolicy(source)
+  if (refusal(policy)) return []
+  const entries = (await sitemapEntries(source)).filter((entry) => {
+    const url = new URL(entry.url)
+    return policy.allows(url.pathname + url.search)
+  })
+  const { data: seenRows } = await admin
+    .from('catalog_pages')
+    .select('url')
+    .eq('source', source)
+  const seen = new Set((seenRows ?? []).map((row) => row.url))
+  return entries.filter((entry) => !seen.has(entry.url))
+}
+
+const MANUAL_LIMIT = 50
+// Stay well inside the Edge Function time limit.
+const MANUAL_BUDGET_MS = 100_000
+
+/**
+ * A household's "Fetch new recipes": up to MANUAL_LIMIT recipes it doesn't
+ * have yet, taken in turns across its sources, once every 12 hours.
+ */
+async function manualFetch(req: Request): Promise<Response> {
+  const allowedOrigin = Deno.env.get('APP_ORIGIN')
+  const origin = req.headers.get('origin')
+  const headers = {
+    'Access-Control-Allow-Origin': allowedOrigin ?? '',
+    'Access-Control-Allow-Headers':
+      'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Content-Type': 'application/json',
+    Vary: 'Origin',
+  }
+  const respond = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers })
+  if (!allowedOrigin || (origin && origin !== allowedOrigin))
+    return respond(403, { error: 'Origin not allowed.' })
+  if (req.method === 'OPTIONS') return new Response(null, { headers })
+  const authorization = req.headers.get('Authorization') ?? ''
+  const member = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    {
+      global: { headers: { Authorization: authorization } },
+      auth: { persistSession: false },
+    },
+  )
+  const user = await member.auth.getUser(authorization.slice(7))
+  if (user.error || !user.data.user)
+    return respond(401, { error: 'Sign in again.' })
+  const claim = await member.rpc('claim_catalog_fetch')
+  if (claim.error) return respond(403, { error: 'Household access denied.' })
+  if (claim.data)
+    return respond(429, {
+      error: 'You can fetch new recipes again later.',
+      nextAt: claim.data,
+    })
+  const { data: followed } = await member
+    .from('household_sources')
+    .select('domain')
+  const admin = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    { auth: { persistSession: false } },
+  )
+  const queues = new Map<Source, Entry[]>()
+  for (const { domain } of followed ?? []) {
+    try {
+      queues.set(domain, await unseenEntries(admin, domain))
+    } catch (error) {
+      console.error('Manual fetch skipped a source', domain, error)
+    }
+  }
+  const started = Date.now()
+  const perSource: Record<string, number> = {}
+  let imported = 0
+  let partial = false
+  // Take turns across sources so one site isn't asked for everything.
+  while (
+    imported < MANUAL_LIMIT &&
+    [...queues.values()].some((q) => q.length)
+  ) {
+    for (const [source, queue] of queues) {
+      const entry = queue.shift()
+      if (!entry) continue
+      if (Date.now() - started > MANUAL_BUDGET_MS) {
+        partial = true
+        break
+      }
+      if (await importPage(admin, source, entry)) {
+        imported++
+        perSource[source] = (perSource[source] ?? 0) + 1
+        if (imported >= MANUAL_LIMIT) break
+      }
+    }
+    if (partial) break
+  }
+  return respond(200, { imported, perSource, partial })
+}
+
 function sameSecret(a: string, b: string) {
   if (a.length !== b.length) return false
   let diff = 0
@@ -234,6 +376,9 @@ function sameSecret(a: string, b: string) {
 }
 
 Deno.serve(async (req: Request) => {
+  // Household members fetch on demand with their own sign-in; the weekly
+  // cron uses the shared secret instead.
+  if (!req.headers.has('x-catalog-secret')) return manualFetch(req)
   const respond = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), {
       status,
@@ -302,42 +447,8 @@ Deno.serve(async (req: Request) => {
         )
         .slice(0, preloading ? Math.min(BATCH, PRELOAD - (count ?? 0)) : BATCH)
       let imported = 0
-      for (const entry of todo) {
-        await sleep(DELAY_MS)
-        let status: 'recipe' | 'not_recipe' | 'failed' = 'failed'
-        try {
-          const facts = extractFacts(await fetchText(entry.url, source))
-          if (facts) {
-            const slug = new URL(entry.url).pathname
-              .replace(/^\/|\/$/g, '')
-              .slice(0, 150)
-            const { error } = await admin.from('catalog_recipes').upsert({
-              id: `${source.replace(/\.com$/, '').replace(/\./g, '-')}:${slug}`,
-              source,
-              url: entry.url,
-              ...facts,
-              published_at: facts.published_at ?? entry.lastmod,
-              fetched_at: new Date().toISOString(),
-            })
-            if (error) throw error
-            status = 'recipe'
-            imported++
-          } else status = 'not_recipe'
-        } catch (error) {
-          console.error(
-            'Catalog page failed',
-            source,
-            error instanceof Error ? error.message : error,
-          )
-        }
-        await admin.from('catalog_pages').upsert({
-          url: entry.url,
-          source,
-          status,
-          lastmod: entry.lastmod,
-          checked_at: new Date().toISOString(),
-        })
-      }
+      for (const entry of todo)
+        if (await importPage(admin, source, entry)) imported++
       // Recipes imported before directions were kept get them now.
       const { data: missing } = await admin
         .from('catalog_recipes')

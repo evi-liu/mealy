@@ -1509,7 +1509,11 @@ function Kitchen({ exit }: { exit: () => void }) {
               />
             )}
             {tab === 'profile' && (
-              <ProfileScreen onHouseholdChanged={store.reload} exit={exit} />
+              <ProfileScreen
+                onHouseholdChanged={store.reload}
+                onCatalogChanged={catalog.reload}
+                exit={exit}
+              />
             )}
             {tab === 'recipes' && (
               <Recipes
