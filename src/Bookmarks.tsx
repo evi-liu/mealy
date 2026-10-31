@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@base-ui/react/button'
 import { Sparkles } from 'lucide-react'
+import { OfflineNote, useOnline } from './online'
 
 /**
  * Paste a recipe link and AI reads the page into a new recipe to check and
@@ -17,6 +18,7 @@ export function Bookmarks({
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
   const [importing, setImporting] = useState(false)
+  const online = useOnline()
   async function run() {
     setError('')
     setImporting(true)
@@ -60,7 +62,7 @@ export function Bookmarks({
         <Button
           className="primaryButton"
           type="submit"
-          disabled={importing}
+          disabled={importing || !online}
           focusableWhenDisabled
         >
           <Sparkles size={17} /> {importing ? 'Reading...' : 'Import'}
@@ -71,6 +73,7 @@ export function Bookmarks({
           Reading the page and drafting your recipe...
         </p>
       )}
+      {!online && <OfflineNote />}
       {error && (
         <p className="error" role="alert">
           {error}

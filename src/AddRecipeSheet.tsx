@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@base-ui/react/button'
+import { OfflineNote, useOnline } from './online'
 import { Dialog } from '@base-ui/react/dialog'
 import { ArrowLeft, Link, Plus, Sparkles } from 'lucide-react'
 import { Bookmarks } from './Bookmarks'
@@ -13,6 +14,7 @@ export function AddRecipeSheet({
 }) {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<'choose' | 'link' | 'ai'>('choose')
+  const online = useOnline()
   const [pending, setPending] = useState(false)
   const [instruction, setInstruction] = useState('')
   const [error, setError] = useState('')
@@ -124,9 +126,10 @@ export function AddRecipeSheet({
                   AI helps with the first draft. You'll review it before saving.
                   Don't include sensitive information.
                 </Dialog.Description>
+                {!online && <OfflineNote />}
                 <Button
                   className="primaryButton"
-                  disabled={pending || !instruction.trim()}
+                  disabled={pending || !online || !instruction.trim()}
                   onClick={() => void submitPrompt()}
                 >
                   <Sparkles size={18} aria-hidden="true" />
@@ -156,8 +159,10 @@ export function AddRecipeSheet({
               </Dialog.Description>
               {mode === 'choose' ? (
                 <div className="recipeAddOptions">
+                  {!online && <OfflineNote />}
                   <Button
                     className="recipeAddOption"
+                    disabled={!online}
                     onClick={() => setMode('ai')}
                   >
                     <span className="recipeOptionIcon">
@@ -170,6 +175,7 @@ export function AddRecipeSheet({
                   </Button>
                   <Button
                     className="recipeAddOption"
+                    disabled={!online}
                     onClick={() => setMode('link')}
                   >
                     <span className="recipeOptionIcon">

@@ -11,6 +11,7 @@ import {
 } from './domain'
 import { parseIngredientFact } from './recipeFacts'
 import { supabase } from './store'
+import { isNetworkError } from './sync'
 
 // Rows written by the catalog-import Edge Function for the household's sources.
 export const catalogRowSchema = z.object({
@@ -151,6 +152,25 @@ export function splitCatalog(entries: CatalogEntry[]) {
 }
 
 /** Loads the shared catalog once per signed-in session. */
+const CATALOG_CACHE_KEY = 'mealy-catalog-cache-v1'
+
+function readCatalogCache(): unknown[] | null {
+  try {
+    const raw = localStorage.getItem(CATALOG_CACHE_KEY)
+    return raw ? (JSON.parse(raw) as unknown[]) : null
+  } catch {
+    return null
+  }
+}
+
+function writeCatalogCache(rows: unknown[]) {
+  try {
+    localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(rows))
+  } catch {
+    // Too large or unavailable: the catalog just needs a connection.
+  }
+}
+
 export function useCatalog(): Catalog {
   const [loads, setLoads] = useState(0)
   const [catalog, setCatalog] = useState<Omit<Catalog, 'reload'>>({
@@ -172,13 +192,20 @@ export function useCatalog(): Catalog {
       .limit(1000)
       .then(({ data, error }) => {
         if (!active) return
-        if (error)
-          return setCatalog((c) => ({
-            ...c,
-            loaded: true,
-            error: 'The recipe catalog could not be loaded.',
-          }))
-        const entries = (data ?? []).flatMap((row) => {
+        let rows: unknown[] | null = data
+        if (error) {
+          // Offline or unreachable: use the copy from the last good load.
+          rows = readCatalogCache()
+          if (!rows)
+            return setCatalog((c) => ({
+              ...c,
+              loaded: true,
+              error: isNetworkError(error)
+                ? ''
+                : 'The recipe catalog could not be loaded.',
+            }))
+        } else writeCatalogCache(data ?? [])
+        const entries = (rows ?? []).flatMap((row) => {
           const parsed = catalogRowSchema.safeParse(row)
           const entry = parsed.success ? catalogRecipe(parsed.data) : null
           return entry ? [entry] : []

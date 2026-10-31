@@ -64,6 +64,8 @@ import { unsaved, useCatalog, type Catalog } from './catalog'
 import { Onboarding, ProfileScreen } from './Profile'
 import { householdApi } from './household'
 import { useConfirm } from './confirm'
+import { OfflineNote, OnlineContext, useOnline } from './online'
+import { clearLocalData, isNetworkError } from './sync'
 import { LovedButton, RecipeDetails, type RemixSave } from './RecipeDetails'
 
 const tabs = ['plan', 'groceries', 'pantry', 'recipes', 'profile'] as const
@@ -319,6 +321,7 @@ function Swipe({
   details: (recipe: Recipe) => void
   reportError: (message: string) => void
 }) {
+  const online = useOnline()
   const [ranking, setRanking] = useState(false)
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const pending = state.queue.filter(
@@ -542,12 +545,13 @@ function Swipe({
       )}
       <Button
         className="secondaryButton"
-        disabled={ranking || !state.queue.length}
+        disabled={ranking || !online || !state.queue.length}
         onClick={() => void rank()}
       >
         <Sparkles size={16} />
         {ranking ? 'Ranking...' : 'Use optional AI ranking'}
       </Button>
+      {!online && <OfflineNote />}
       <div className="setupFooter">
         <Button
           className="primaryButton"
@@ -1423,11 +1427,11 @@ function Kitchen({ exit }: { exit: () => void }) {
   const confirm = useConfirm()
   useEffect(() => {
     // Keeps name and photo current so household members can find this person.
-    void householdApi
-      .syncProfile()
-      .catch((error) =>
-        store.reportError(`Could not sync your profile: ${message(error)}`),
-      )
+    void householdApi.syncProfile().catch((error) => {
+      // Offline is fine: the profile catches up on the next launch.
+      if (!isNetworkError(error))
+        store.reportError(`Could not sync your profile: ${message(error)}`)
+    })
   }, [store.reportError])
   const headingRef = useRef<HTMLDivElement>(null)
   const screenPhase = tab === 'plan' ? state?.phase : undefined
@@ -1452,155 +1456,156 @@ function Kitchen({ exit }: { exit: () => void }) {
   const details = (recipe: Recipe, servings?: number, slot?: number) =>
     setDetail({ recipe, servings, slot })
   return (
-    <div className="appShell" ref={headingRef}>
-      {!store.connected && (
-        <div className="modeBar">
-          <span>Connection unavailable · changes need internet</span>
-        </div>
-      )}
-      {store.error && (
-        <div role="alert" className="errorBanner">
-          <p>{store.error}</p>
-          <Button onClick={store.retry}>Retry connection</Button>
-        </div>
-      )}
-      {store.noHousehold ? (
-        <Onboarding onJoined={store.reload} exit={exit} />
-      ) : !state ? (
-        <div className="screen">
-          <h1>
-            {store.error ? 'Kitchen unavailable' : 'Opening your kitchen...'}
-          </h1>
-        </div>
-      ) : (
-        <>
-          {state.week !== weekKey() && (
-            <div className="notice">
-              You're viewing the saved week of {state.week}. Start a new week
-              when you're ready.
-            </div>
-          )}
-          <fieldset
-            className="appFieldset"
-            disabled={store.busy}
-            aria-busy={store.busy}
-          >
-            {tab === 'plan' &&
-              (state.phase === 'setup' ? (
-                <Setup state={state} change={store.change} catalog={catalog} />
-              ) : state.phase === 'swipe' ? (
-                <Swipe
-                  state={state}
-                  change={store.change}
-                  household={store.household}
-                  details={details}
-                  reportError={store.reportError}
-                />
-              ) : (
-                <Plan
-                  state={state}
-                  change={store.change}
-                  details={details}
-                  openGroceries={() => navigate('groceries')}
-                  household={store.household}
-                />
-              ))}
-            {tab === 'groceries' && (
-              <Groceries state={state} change={store.change} />
-            )}
-            {tab === 'pantry' && (
-              <Pantry
-                state={state}
-                change={store.change}
-                busy={store.busy}
-                error={store.error}
-              />
-            )}
-            {tab === 'profile' && (
-              <ProfileScreen
-                onHouseholdChanged={store.reload}
-                onCatalogChanged={catalog.reload}
-                exit={exit}
-              />
-            )}
-            {tab === 'recipes' && (
-              <Recipes
-                store={store}
-                ai={ai}
-                details={details}
-                remix={remix}
-                clearRemix={clearRemix}
-                catalog={catalog}
-              />
-            )}
-            {tab === 'plan' && (
-              <div className="weekAction">
-                <Button
-                  className="textButton"
-                  onClick={async () => {
-                    if (
-                      await confirm({
-                        title: 'Start a fresh week?',
-                        body: 'This clears weekly choices, the plan and shopping checks, but keeps recipes, pantry and loved recipes.',
-                        confirm: 'Start fresh',
-                      })
-                    ) {
-                      void store
-                        .change(newWeek, { kind: 'new_week' })
-                        .then((saved) => {
-                          if (saved) navigate('plan')
-                        })
-                    }
-                  }}
-                >
-                  Start a fresh week
-                </Button>
+    <OnlineContext.Provider value={store.online}>
+      <div className="appShell" ref={headingRef}>
+        {store.error && (
+          <div role="alert" className="errorBanner">
+            <p>{store.error}</p>
+            <Button onClick={store.retry}>Retry connection</Button>
+          </div>
+        )}
+        {store.noHousehold ? (
+          <Onboarding onJoined={store.reload} exit={exit} />
+        ) : !state ? (
+          <div className="screen">
+            <h1>
+              {store.error ? 'Kitchen unavailable' : 'Opening your kitchen...'}
+            </h1>
+          </div>
+        ) : (
+          <>
+            {state.week !== weekKey() && (
+              <div className="notice">
+                You're viewing the saved week of {state.week}. Start a new week
+                when you're ready.
               </div>
             )}
-          </fieldset>
-          <nav className="bottomNav" aria-label="Main navigation">
-            {tabs.map((item, index) => {
-              const Icon = [
-                Home,
-                ShoppingBasket,
-                PackageOpen,
-                BookOpen,
-                UserRound,
-              ][index]
-              return (
-                <Button
-                  key={item}
-                  aria-current={tab === item ? 'page' : undefined}
-                  data-deck-target={item === 'recipes' ? '' : undefined}
-                  onClick={() => navigate(item)}
-                >
-                  <Icon size={21} />
-                  <span>{tabLabels[item]}</span>
-                </Button>
-              )
-            })}
-          </nav>
-        </>
-      )}
-      {detail && state && (
-        <RecipeDetails
-          recipe={detail.recipe}
-          servings={detail.servings}
-          slot={detail.slot}
-          state={state}
-          change={store.change}
-          ai={ai}
-          household={store.household}
-          storeError={store.error}
-          saveRemix={(save) => {
-            setDetail(null)
-            setRemix(save)
-            navigate('recipes')
-          }}
-          close={() => setDetail(null)}
-        />
-      )}
-    </div>
+            <fieldset
+              className="appFieldset"
+              disabled={store.busy}
+              aria-busy={store.busy}
+            >
+              {tab === 'plan' &&
+                (state.phase === 'setup' ? (
+                  <Setup
+                    state={state}
+                    change={store.change}
+                    catalog={catalog}
+                  />
+                ) : state.phase === 'swipe' ? (
+                  <Swipe
+                    state={state}
+                    change={store.change}
+                    household={store.household}
+                    details={details}
+                    reportError={store.reportError}
+                  />
+                ) : (
+                  <Plan
+                    state={state}
+                    change={store.change}
+                    details={details}
+                    openGroceries={() => navigate('groceries')}
+                    household={store.household}
+                  />
+                ))}
+              {tab === 'groceries' && (
+                <Groceries state={state} change={store.change} />
+              )}
+              {tab === 'pantry' && (
+                <Pantry
+                  state={state}
+                  change={store.change}
+                  busy={store.busy}
+                  error={store.error}
+                />
+              )}
+              {tab === 'profile' && (
+                <ProfileScreen
+                  onHouseholdChanged={store.reload}
+                  onCatalogChanged={catalog.reload}
+                  exit={exit}
+                />
+              )}
+              {tab === 'recipes' && (
+                <Recipes
+                  store={store}
+                  ai={ai}
+                  details={details}
+                  remix={remix}
+                  clearRemix={clearRemix}
+                  catalog={catalog}
+                />
+              )}
+              {tab === 'plan' && (
+                <div className="weekAction">
+                  <Button
+                    className="textButton"
+                    onClick={async () => {
+                      if (
+                        await confirm({
+                          title: 'Start a fresh week?',
+                          body: 'This clears weekly choices, the plan and shopping checks, but keeps recipes, pantry and loved recipes.',
+                          confirm: 'Start fresh',
+                        })
+                      ) {
+                        void store
+                          .change(newWeek, { kind: 'new_week' })
+                          .then((saved) => {
+                            if (saved) navigate('plan')
+                          })
+                      }
+                    }}
+                  >
+                    Start a fresh week
+                  </Button>
+                </div>
+              )}
+            </fieldset>
+            <nav className="bottomNav" aria-label="Main navigation">
+              {tabs.map((item, index) => {
+                const Icon = [
+                  Home,
+                  ShoppingBasket,
+                  PackageOpen,
+                  BookOpen,
+                  UserRound,
+                ][index]
+                return (
+                  <Button
+                    key={item}
+                    aria-current={tab === item ? 'page' : undefined}
+                    data-deck-target={item === 'recipes' ? '' : undefined}
+                    onClick={() => navigate(item)}
+                  >
+                    <Icon size={21} />
+                    <span>{tabLabels[item]}</span>
+                  </Button>
+                )
+              })}
+            </nav>
+          </>
+        )}
+        {detail && state && (
+          <RecipeDetails
+            recipe={detail.recipe}
+            servings={detail.servings}
+            slot={detail.slot}
+            state={state}
+            change={store.change}
+            ai={ai}
+            household={store.household}
+            storeError={store.error}
+            saveRemix={(save) => {
+              setDetail(null)
+              setRemix(save)
+              navigate('recipes')
+            }}
+            close={() => setDetail(null)}
+          />
+        )}
+      </div>
+    </OnlineContext.Provider>
   )
 }
 
@@ -1651,6 +1656,8 @@ export default function App() {
   async function exit() {
     if (mode === 'live' && supabase) {
       const { error } = await supabase.auth.signOut({ scope: 'local' })
+      // This device shouldn't keep household data after signing out.
+      if (!error) clearLocalData()
       if (error) {
         setError(error.message)
         return

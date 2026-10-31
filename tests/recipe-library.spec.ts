@@ -541,18 +541,18 @@ test('deletion requires confirmation and clears dependent planning state, not pa
   await expect(row).toHaveCount(0)
 })
 
-test('failed deletion keeps the saved recipe and reports the failure', async ({
+test('a rejected deletion restores the recipe and reports the failure', async ({
   page,
   kitchen,
 }) => {
-  kitchen.failSave = true
+  kitchen.rejectSave = true
   await page.goto('./#recipes')
   const count = kitchen.state.recipes.length
   const row = page.locator('.libraryRow').first()
   await row.locator('.recipeRowOpen').press('ArrowLeft')
   await row.getByRole('button', { name: 'Delete', exact: true }).click()
   await page.getByRole('button', { name: 'Delete recipe', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('Test save unavailable')
+  await expect(page.getByRole('alert')).toContainText('Test save rejected')
   expect(kitchen.state.recipes).toHaveLength(count)
   await expect(row).toBeVisible()
 })

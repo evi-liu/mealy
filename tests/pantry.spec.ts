@@ -173,7 +173,7 @@ test('at-home ingredients cross off groceries and running out restores only that
   await expect(other.getByRole('checkbox')).toBeChecked()
 })
 
-test('failed pantry saves retain the input and keep the sheet usable', async ({
+test('a pantry add shows at once and is retried until the server takes it', async ({
   page,
   kitchen,
 }) => {
@@ -183,21 +183,20 @@ test('failed pantry saves retain the input and keep the sheet usable', async ({
   const input = page.getByRole('textbox', { name: 'Ingredient name' })
   await input.fill('rice')
   await input.press('Enter')
-  await expect(page.getByRole('alert')).toContainText('Test save unavailable')
-  await expect(input).toHaveValue('rice')
-  expect(kitchen.state.pantry).toEqual([])
-  kitchen.failSave = false
-  await page
-    .getByRole('button', { name: 'Add ingredient', exact: true })
-    .click()
+  // Offline-first: the change applies here even while the server fails.
   await expect(page.getByRole('status')).toContainText('rice added')
   await expect(input).toHaveValue('')
+  await expect(page.locator('.errorBanner')).toHaveCount(0)
+  expect(kitchen.state.pantry).toEqual([])
+  kitchen.failSave = false
+  await expect
+    .poll(() => kitchen.state.pantry.map((item) => item.name), {
+      timeout: 15_000,
+    })
+    .toEqual(['rice'])
 })
 
-test('a pending pantry add cannot be duplicated or dismissed mid-save', async ({
-  page,
-  kitchen,
-}) => {
+test('a slow save never duplicates a pantry add', async ({ page, kitchen }) => {
   let release!: () => void
   const gate = new Promise<void>((resolve) => {
     release = resolve
@@ -212,16 +211,15 @@ test('a pending pantry add cannot be duplicated or dismissed mid-save', async ({
   const input = sheet.getByRole('textbox', { name: 'Ingredient name' })
   await input.fill('rice')
   await input.press('Enter')
-  await expect(input).toBeDisabled()
-  await expect(
-    sheet.getByRole('button', { name: 'Add ingredient', exact: true }),
-  ).toBeDisabled()
-  await page.keyboard.press('Escape')
-  await page.locator('.dialogBackdrop').click({ position: { x: 5, y: 5 } })
-  await expect(sheet).toBeVisible()
-  release()
   await expect(sheet.getByRole('status')).toContainText('rice added')
-  expect(kitchen.state.pantry.map((item) => item.name)).toEqual(['rice'])
+  // Adding the same ingredient again is refused locally, save or no save.
+  await input.fill('rice')
+  await input.press('Enter')
+  await expect(sheet.getByRole('alert')).toContainText('already')
+  release()
+  await expect
+    .poll(() => kitchen.state.pantry.map((item) => item.name))
+    .toEqual(['rice'])
 })
 
 test('pantry removal is hidden until a left swipe and supports keyboard access', async ({
@@ -303,14 +301,15 @@ test('pantry removal is hidden until a left swipe and supports keyboard access',
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     320,
   )
+  // Removal applies at once; a failing server just means a later retry.
   kitchen.failSave = true
   await remove.click()
-  await expect(page.getByRole('alert')).toContainText('Test save unavailable')
+  await expect(rows).toHaveCount(1)
   expect(kitchen.state.pantry).toHaveLength(2)
   kitchen.failSave = false
-  await first.locator('.pantryRowFront').press('ArrowLeft')
-  await remove.click()
-  await expect(rows).toHaveCount(1)
+  await expect
+    .poll(() => kitchen.state.pantry.length, { timeout: 15_000 })
+    .toBe(1)
   await expect(
     page.getByRole('heading', { name: 'At home', exact: true }),
   ).toBeFocused()

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@base-ui/react/button'
 import { LoaderCircle, Sparkles } from 'lucide-react'
+import { OfflineNote, useOnline } from '../online'
 
 export function PromptBar({
   label,
@@ -21,6 +22,7 @@ export function PromptBar({
   onSubmit: (text: string) => Promise<boolean>
 }) {
   const [value, setValue] = useState('')
+  const online = useOnline()
   async function send() {
     const text = value.trim()
     if (!text || pending) return
@@ -36,7 +38,7 @@ export function PromptBar({
         value={value}
         maxLength={500}
         rows={sticky ? 1 : quiet ? 2 : 3}
-        readOnly={pending}
+        readOnly={pending || !online}
         aria-busy={pending}
         enterKeyHint="send"
         onChange={(e) => setValue(e.target.value)}
@@ -50,7 +52,7 @@ export function PromptBar({
       <Button
         className="iconButton promptSend"
         aria-label={submitLabel}
-        disabled={pending || !value.trim()}
+        disabled={pending || !online || !value.trim()}
         focusableWhenDisabled
         onClick={() => void send()}
       >
@@ -60,6 +62,7 @@ export function PromptBar({
           <Sparkles size={19} />
         )}
       </Button>
+      {!online && <OfflineNote />}
     </div>
   )
 }

@@ -33,23 +33,26 @@ test('unauthorized accounts cannot fall back to local recipes', async ({
   await expect(page.locator('.recipeEntry')).toHaveCount(0)
 })
 
-test('failed live saves show an error without local success or household storage', async ({
+test('a save the server rejects is rolled back with an error', async ({
   page,
   kitchen,
 }) => {
-  kitchen.failSave = true
+  kitchen.rejectSave = true
   await page.goto('./#pantry')
   await page.getByRole('button', { name: 'Add pantry ingredient' }).click()
   await page.getByRole('textbox', { name: 'Ingredient name' }).fill('rice')
   await page
     .getByRole('button', { name: 'Add ingredient', exact: true })
     .click()
-  await expect(page.getByRole('alert')).toContainText('Test save unavailable')
+  await expect(page.getByRole('alert')).toContainText('Test save rejected')
   await expect(page.locator('.pantryItem')).toHaveCount(0)
   expect(kitchen.state.pantry).toEqual([])
-  expect(
-    await page.evaluate(() => localStorage.getItem('mealy-demo-v1')),
-  ).toBeNull()
+  // The device cache never holds the rejected change.
+  const cached = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('mealy-household-cache-v1') ?? 'null'),
+  )
+  expect(cached?.local.pantry ?? []).toEqual([])
+  expect(cached?.pending ?? []).toEqual([])
 })
 
 test('signing out closes the real kitchen', async ({ page }) => {

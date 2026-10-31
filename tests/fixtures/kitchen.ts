@@ -23,7 +23,10 @@ type Kitchen = {
   state: State
   version: number
   authorized: boolean
+  /** The server is down (503): offline-first keeps the change and retries. */
   failSave: boolean
+  /** The server refuses the save (400): the change is rolled back. */
+  rejectSave: boolean
   aiRequests: number
 }
 
@@ -35,6 +38,7 @@ export const test = base.extend<{ kitchen: Kitchen }>({
         version: 0,
         authorized: true,
         failSave: false,
+        rejectSave: false,
         aiRequests: 0,
       }
       // Every non-local request is intercepted; tests cannot touch production.
@@ -95,6 +99,8 @@ export const test = base.extend<{ kitchen: Kitchen }>({
         if (url.pathname === '/rest/v1/rpc/save_household') {
           if (kitchen.failSave)
             return json({ message: 'Test save unavailable' }, 503)
+          if (kitchen.rejectSave)
+            return json({ message: 'Test save rejected' }, 400)
           const body = request.postDataJSON()
           if (body.p_version !== kitchen.version)
             return json(

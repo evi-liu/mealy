@@ -12,6 +12,7 @@ import {
 import { supabase } from './store'
 import { sourceName } from './domain'
 import { useConfirm } from './confirm'
+import { useOnline } from './online'
 import {
   householdApi,
   type HouseholdOverview,
@@ -490,11 +491,12 @@ function FetchRecipes({ onFetched }: { onFetched: () => void }) {
       .catch(() => {})
   }, [])
   const waiting = nextAt !== null && new Date(nextAt).getTime() > Date.now()
+  const online = useOnline()
   return (
     <div className="fetchRecipes">
       <Button
         className="secondaryButton"
-        disabled={fetching || waiting}
+        disabled={fetching || waiting || !online}
         focusableWhenDisabled
         onClick={async () => {
           setFetching(true)
@@ -522,12 +524,14 @@ function FetchRecipes({ onFetched }: { onFetched: () => void }) {
         {fetching ? 'Fetching recipes...' : 'Fetch new recipes'}
       </Button>
       <p className="helper" role="status">
-        {fetching
-          ? 'Reading your sources politely, one page at a time. This can take a minute or two.'
-          : status ||
-            (waiting
-              ? `Up to 50 new recipes, once every 12 hours. Next fetch: ${when(nextAt!)}.`
-              : 'Up to 50 new recipes from your sources, once every 12 hours.')}
+        {!online
+          ? 'Fetching recipes needs an internet connection.'
+          : fetching
+            ? 'Reading your sources politely, one page at a time. This can take a minute or two.'
+            : status ||
+              (waiting
+                ? `Up to 50 new recipes, once every 12 hours. Next fetch: ${when(nextAt!)}.`
+                : 'Up to 50 new recipes from your sources, once every 12 hours.')}
       </p>
       {error && (
         <p role="alert" className="error">

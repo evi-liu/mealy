@@ -19,7 +19,7 @@ A mobile-first, installable React + TypeScript kitchen planner for one two-perso
 - Household recipe creation/editing, complete ingredients/methods, optional private photos, durable explicit preferences and feedback events. Recipe editing invalidates a dependent plan; removing pantry stock clears shopping checks (removing an item that a grocery check added only unchecks that grocery). A fresh week preserves recipes, pantry and durable preferences.
 - **Link a website** (Recipes → +): paste a public recipe page and the `recipe-draft` function fetches it server-side (https only, public hosts, redirect/size/time limits) and asks AI to extract its title, yield, time, ingredients and directions into a review form, with the link kept as the source. Nothing is saved until the household checks the form. Source-linked recipes waiting for review offer **Fill in with AI**, which rereads the page to resolve unclear amounts and add directions.
 - Live state is polled every four seconds and on focus/reconnection. Atomic version-checked saves reject stale edits, reload the other phone's changes, and ask you to repeat your action rather than silently overwrite them.
-- Hash-based tab URLs, `/mealy/` asset paths, install manifest and app-shell service worker. **Household data is not cached for offline use**; it requires internet.
+- Hash-based tab URLs, `/mealy/` asset paths, install manifest and app-shell service worker. **Offline-first:** the last household state and recipe catalog are cached on the device (`localStorage`, cleared on sign-out), so the app opens and works without a connection. Changes apply immediately and queue; when the connection returns each is replayed on top of the latest server version (another phone's changes are never overwritten; a change that no longer applies is skipped with a message). Server hiccups (5xx) are retried; a rejected save rolls back with an error. Only actions that need a server, AI drafting/remix/ranking, link import and fetching recipes, disable themselves offline with a short note.
 
 **Not yet available:** in-app external recipe search. The bounded Tiffy facts snapshots contain no authored instructions or photographs; missing amounts and ranges require household review, with no guessed densities or package weights. See [source checks and facts-review behavior](docs/trusted-sources.md). Kitchen illustrations are not recipe photographs. Households start empty; available facts are added explicitly for matching saved links.
 
@@ -86,6 +86,8 @@ Set up once, after applying the catalog migrations (`202610300003` to `202610300
 supabase functions deploy catalog-import
 ```
 
+Households can also tap **Fetch new recipes** in Profile → Recipe sources: `catalog-import`, called with the member's sign-in, imports up to 50 recipes the household doesn't have yet across its sources (same robots.txt rules and spacing, `202610300008_catalog_manual_fetch.sql` limits it to once per household every 12 hours).
+
 Then run `supabase/setup-catalog-cron.sql` once in the SQL editor with your project ref filled in. It enables `pg_cron`/`pg_net`, generates a random shared secret in Vault (no Edge Function secret to manage), and schedules the importer for **Saturdays only**, every 10 minutes from 09:00 to 10:50 UTC. The first Saturday finishes the preload in batches; afterwards the first Saturday run checks for new recipes and the rest return without visiting any site. `select cron.unschedule('catalog-import');` stops it.
 
 ## Optional AI ranking and recipe drafting
@@ -121,7 +123,7 @@ No embeddings, vector database, fine-tuning, or chat-memory dependence is needed
 
 ## Pages and installation
 
-`npm run build` outputs `dist/` with base `/mealy/`. Hash navigation avoids Pages deep-link 404s; OAuth redirects target `/mealy/` itself. The service worker precaches only public app-shell assets, not authenticated API responses/photos. An update prompts for a reload instead of interrupting editing. Google sign-in and live state require connectivity.
+`npm run build` outputs `dist/` with base `/mealy/`. Hash navigation avoids Pages deep-link 404s; OAuth redirects target `/mealy/` itself. The service worker precaches only public app-shell assets, not authenticated API responses/photos; household data is cached by the app itself (see above). An update prompts for a reload instead of interrupting editing. The first Google sign-in needs a connection.
 
 The repository includes ordinary CI and a **manual-only** Pages workflow. Nothing auto-deploys on push. When deployment is separately approved:
 

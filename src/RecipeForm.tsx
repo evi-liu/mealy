@@ -14,6 +14,7 @@ import { useConfirm } from './confirm'
 import { flyToDeck } from './motion/flyToDeck'
 import type { DraftBase, RecipeAi, RecipeDraft } from './ai/recipeAi'
 import { AiBadge } from './AiBadge'
+import { OfflineNote, useOnline } from './online'
 
 export type InitialRecipeDraft = {
   recipe: RecipeDraft
@@ -97,6 +98,7 @@ export function RecipeForm({
   const [notes, setNotes] = useState<string[]>(initialDraft?.notes ?? [])
   const [aiError, setAiError] = useState('')
   const [drafting, setDrafting] = useState(false)
+  const online = useOnline()
   const [touched, setTouched] = useState(false)
   const confirm = useConfirm()
   async function leave() {
@@ -292,9 +294,10 @@ export function RecipeForm({
             amounts and the directions, keeping what you've already entered.
             Check everything before saving.
           </p>
+          {!online && <OfflineNote />}
           <Button
             className="secondaryButton"
-            disabled={drafting}
+            disabled={drafting || !online}
             focusableWhenDisabled
             onClick={() =>
               void requestDraft(
