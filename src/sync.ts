@@ -94,11 +94,43 @@ export function writeHouseholdCache(cache: HouseholdCache) {
   }
 }
 
+export const PROFILE_CACHE_PREFIX = 'mealy-profile-cache-v1:'
+
+/**
+ * Loads Profile data, remembering the last good answer on this device so the
+ * card can still show it without a connection. Other errors still throw.
+ */
+export async function remembered<T>(
+  key: string,
+  load: () => Promise<T>,
+): Promise<T> {
+  try {
+    const value = await load()
+    try {
+      localStorage.setItem(PROFILE_CACHE_PREFIX + key, JSON.stringify(value))
+    } catch {
+      // Storage unavailable: it just won't show offline.
+    }
+    return value
+  } catch (error) {
+    if (!isNetworkError(error)) throw error
+    try {
+      const raw = localStorage.getItem(PROFILE_CACHE_PREFIX + key)
+      if (raw) return JSON.parse(raw) as T
+    } catch {
+      // Fall through to the network error.
+    }
+    throw error
+  }
+}
+
 /** Forgets cached household data, e.g. on sign-out. */
 export function clearLocalData() {
   try {
     for (const key of [HOUSEHOLD_CACHE_KEY, 'mealy-catalog-cache-v1'])
       localStorage.removeItem(key)
+    for (const key of Object.keys(localStorage))
+      if (key.startsWith(PROFILE_CACHE_PREFIX)) localStorage.removeItem(key)
   } catch {
     // Nothing cached.
   }

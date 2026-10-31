@@ -12,7 +12,8 @@ import {
 import { supabase } from './store'
 import { sourceName } from './domain'
 import { useConfirm } from './confirm'
-import { useOnline } from './online'
+import { OfflineNote, useOnline } from './online'
+import { isNetworkError, remembered } from './sync'
 import {
   householdApi,
   type HouseholdOverview,
@@ -103,13 +104,19 @@ function RequestsInbox({ onJoined }: { onJoined: () => void }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const confirm = useConfirm()
+  const online = useOnline()
   const load = useCallback(() => {
     householdApi
       .mine()
       .then(setRequests)
-      .catch((e) => setError(message(e)))
+      // Offline, requests simply wait until the connection is back.
+      .catch((e) =>
+        isNetworkError(e) ? setRequests([]) : setError(message(e)),
+      )
   }, [])
-  useEffect(load, [load])
+  useEffect(() => {
+    if (online) load()
+  }, [load, online])
   async function respond(request: JoinRequest, accept: boolean) {
     setBusy(true)
     setError('')
@@ -263,15 +270,23 @@ function HouseholdCard({ onLeft }: { onLeft: () => void }) {
   const [error, setError] = useState('')
   const [renaming, setRenaming] = useState(false)
   const confirm = useConfirm()
+  const online = useOnline()
   const load = useCallback(() => {
-    Promise.all([householdApi.overview(), householdApi.sent()])
+    remembered('household', () =>
+      Promise.all([householdApi.overview(), householdApi.sent()]),
+    )
       .then(([overview, requests]) => {
         setHousehold(overview)
         setSent(requests)
+        setError('')
       })
-      .catch((e) => setError(message(e)))
+      .catch((e) => {
+        if (!isNetworkError(e)) setError(message(e))
+      })
   }, [])
-  useEffect(load, [load])
+  useEffect(() => {
+    load()
+  }, [load, online])
   async function act(action: () => Promise<unknown>) {
     setError('')
     try {
@@ -279,7 +294,9 @@ function HouseholdCard({ onLeft }: { onLeft: () => void }) {
       load()
       return true
     } catch (e) {
-      setError(message(e))
+      setError(
+        isNetworkError(e) ? 'That needs an internet connection.' : message(e),
+      )
       return false
     }
   }
@@ -291,107 +308,109 @@ function HouseholdCard({ onLeft }: { onLeft: () => void }) {
     ) : null
   return (
     <section className="profileCard" aria-labelledby="household-heading">
-      <span className="eyebrow">YOUR HOUSEHOLD</span>
-      {renaming ? (
-        <form
-          className="renameForm"
-          onSubmit={async (e) => {
-            e.preventDefault()
-            const name = String(new FormData(e.currentTarget).get('name'))
-            if (await act(() => householdApi.rename(name))) setRenaming(false)
+      <fieldset className="plainFieldset" disabled={!online}>
+        <span className="eyebrow">YOUR HOUSEHOLD</span>
+        {renaming ? (
+          <form
+            className="renameForm"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              const name = String(new FormData(e.currentTarget).get('name'))
+              if (await act(() => householdApi.rename(name))) setRenaming(false)
+            }}
+          >
+            <input
+              name="name"
+              aria-label="Household name"
+              defaultValue={household.name}
+              maxLength={80}
+              required
+            />
+            <Button className="textButton" type="submit">
+              Save
+            </Button>
+            <Button className="textButton" onClick={() => setRenaming(false)}>
+              Cancel
+            </Button>
+          </form>
+        ) : (
+          <div className="householdName">
+            <h2 id="household-heading">{household.name}</h2>
+            <Button className="textButton" onClick={() => setRenaming(true)}>
+              Rename
+            </Button>
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <p className="helper">
+          Everyone here shares one week, recipe box, pantry and grocery list.
+        </p>
+        {household.members.map((member) => (
+          <div className="memberRow" key={member.email}>
+            <Avatar
+              name={member.displayName || member.email}
+              url={member.avatarUrl}
+            />
+            <span className="memberName">
+              <strong>
+                {member.displayName || member.email}
+                {member.isMe ? ' (you)' : ''}
+              </strong>
+              <small>{member.email}</small>
+            </span>
+          </div>
+        ))}
+        {sent.length > 0 && (
+          <>
+            <h3>Waiting for an answer</h3>
+            {sent.map((request) => (
+              <div className="memberRow pending" key={request.id}>
+                <span className="avatar" aria-hidden="true">
+                  <UserRound size={18} />
+                </span>
+                <span className="memberName">
+                  <strong>{request.displayName || request.email}</strong>
+                  <small>{request.email} · requested</small>
+                </span>
+                <Button
+                  className="iconButton"
+                  aria-label={`Withdraw request to ${request.email}`}
+                  onClick={() =>
+                    void act(() => householdApi.withdraw(request.id))
+                  }
+                >
+                  <X size={17} />
+                </Button>
+              </div>
+            ))}
+          </>
+        )}
+        <h3>Add someone</h3>
+        <AddMember onRequested={load} />
+        <Button
+          className="textButton leaveButton"
+          onClick={async () => {
+            if (
+              (await confirm({
+                title: `Leave ${household.name}?`,
+                body:
+                  household.members.length === 1
+                    ? "You're its only member, so it will be deactivated, not deleted. If you own it, you can switch back to it from Profile."
+                    : "You'll lose access to its week, recipes and pantry until someone adds you back.",
+                confirm: 'Leave household',
+              })) &&
+              (await act(() => householdApi.leave()))
+            )
+              onLeft()
           }}
         >
-          <input
-            name="name"
-            aria-label="Household name"
-            defaultValue={household.name}
-            maxLength={80}
-            required
-          />
-          <Button className="textButton" type="submit">
-            Save
-          </Button>
-          <Button className="textButton" onClick={() => setRenaming(false)}>
-            Cancel
-          </Button>
-        </form>
-      ) : (
-        <div className="householdName">
-          <h2 id="household-heading">{household.name}</h2>
-          <Button className="textButton" onClick={() => setRenaming(true)}>
-            Rename
-          </Button>
-        </div>
-      )}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <p className="helper">
-        Everyone here shares one week, recipe box, pantry and grocery list.
-      </p>
-      {household.members.map((member) => (
-        <div className="memberRow" key={member.email}>
-          <Avatar
-            name={member.displayName || member.email}
-            url={member.avatarUrl}
-          />
-          <span className="memberName">
-            <strong>
-              {member.displayName || member.email}
-              {member.isMe ? ' (you)' : ''}
-            </strong>
-            <small>{member.email}</small>
-          </span>
-        </div>
-      ))}
-      {sent.length > 0 && (
-        <>
-          <h3>Waiting for an answer</h3>
-          {sent.map((request) => (
-            <div className="memberRow pending" key={request.id}>
-              <span className="avatar" aria-hidden="true">
-                <UserRound size={18} />
-              </span>
-              <span className="memberName">
-                <strong>{request.displayName || request.email}</strong>
-                <small>{request.email} · requested</small>
-              </span>
-              <Button
-                className="iconButton"
-                aria-label={`Withdraw request to ${request.email}`}
-                onClick={() =>
-                  void act(() => householdApi.withdraw(request.id))
-                }
-              >
-                <X size={17} />
-              </Button>
-            </div>
-          ))}
-        </>
-      )}
-      <h3>Add someone</h3>
-      <AddMember onRequested={load} />
-      <Button
-        className="textButton leaveButton"
-        onClick={async () => {
-          if (
-            (await confirm({
-              title: `Leave ${household.name}?`,
-              body:
-                household.members.length === 1
-                  ? "You're its only member, so it will be deactivated, not deleted. If you own it, you can switch back to it from Profile."
-                  : "You'll lose access to its week, recipes and pantry until someone adds you back.",
-              confirm: 'Leave household',
-            })) &&
-            (await act(() => householdApi.leave()))
-          )
-            onLeft()
-        }}
-      >
-        Leave household
-      </Button>
+          Leave household
+        </Button>
+      </fieldset>
     </section>
   )
 }
@@ -412,13 +431,17 @@ function InactiveHouseholds({ onSwitched }: { onSwitched: () => void }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const confirm = useConfirm()
+  const online = useOnline()
   useEffect(() => {
+    if (!online) return
     householdApi
       .inactive()
       .then(setHouseholds)
-      .catch((e) => setError(message(e)))
-  }, [])
-  if (!households.length && !error) return null
+      .catch((e) =>
+        isNetworkError(e) ? setHouseholds([]) : setError(message(e)),
+      )
+  }, [online])
+  if (!online || (!households.length && !error)) return null
   return (
     <section className="profileCard" aria-labelledby="inactive-heading">
       <h2 id="inactive-heading">Your other households</h2>
@@ -547,13 +570,20 @@ function SourcesCard({ onFetched }: { onFetched: () => void }) {
   const [error, setError] = useState('')
   const [refused, setRefused] = useState('')
   const [checking, setChecking] = useState(false)
+  const online = useOnline()
   const load = useCallback(() => {
-    householdApi
-      .sources()
-      .then(setSources)
-      .catch((e) => setError(message(e)))
+    remembered('sources', () => householdApi.sources())
+      .then((list) => {
+        setSources(list)
+        setError('')
+      })
+      .catch((e) => {
+        if (!isNetworkError(e)) setError(message(e))
+      })
   }, [])
-  useEffect(load, [load])
+  useEffect(() => {
+    load()
+  }, [load, online])
   async function act(action: () => Promise<unknown>) {
     setError('')
     try {
@@ -570,79 +600,84 @@ function SourcesCard({ onFetched }: { onFetched: () => void }) {
       <section className="profileCard" aria-labelledby="sources-heading">
         <span className="eyebrow">RECIPE CATALOG</span>
         <h2 id="sources-heading">Recipe sources</h2>
-        <p className="helper">
-          Sites your swipe stack draws from. Mealy imports their newest recipes,
-          ingredients and directions included, and checks every Saturday for new
-          ones. A site you add fills in after the next Saturday import, up to 50
-          recipes. Sites whose robots.txt forbids importers can't be added.
-        </p>
-        {error && (
-          <p role="alert" className="error">
-            {error}
+        <fieldset className="plainFieldset" disabled={!online}>
+          <p className="helper">
+            Sites your swipe stack draws from. Mealy imports their newest
+            recipes, ingredients and directions included, and checks every
+            Saturday for new ones. A site you add fills in after the next
+            Saturday import, up to 50 recipes. Sites whose robots.txt forbids
+            importers can't be added.
           </p>
-        )}
-        {sources?.map((domain) => (
-          <div className="memberRow" key={domain}>
-            <span className="memberName">
-              <strong>{sourceName(`https://${domain}/`)}</strong>
-              <small>{domain}</small>
-            </span>
-            <Button
-              className="iconButton"
-              aria-label={`Remove ${domain}`}
-              onClick={() => void act(() => householdApi.removeSource(domain))}
-            >
-              <X size={17} />
-            </Button>
-          </div>
-        ))}
-        {sources?.length === 0 && (
-          <p className="helper">No sources yet. Add a recipe site below.</p>
-        )}
-        {!!sources?.length && <FetchRecipes onFetched={onFetched} />}
-        <form
-          className="renameForm addSource"
-          onSubmit={async (e) => {
-            e.preventDefault()
-            const form = e.currentTarget
-            const url = String(new FormData(form).get('url'))
-            setRefused('')
-            setChecking(true)
-            try {
-              const check = await householdApi.checkSource(url)
-              if (!check.allowed) {
-                setRefused(
-                  `Couldn't add ${check.domain}: ${check.reason ?? 'its robots.txt does not allow automated importers'}.`,
-                )
+          {error && (
+            <p role="alert" className="error">
+              {error}
+            </p>
+          )}
+          {sources?.map((domain) => (
+            <div className="memberRow" key={domain}>
+              <span className="memberName">
+                <strong>{sourceName(`https://${domain}/`)}</strong>
+                <small>{domain}</small>
+              </span>
+              <Button
+                className="iconButton"
+                aria-label={`Remove ${domain}`}
+                onClick={() =>
+                  void act(() => householdApi.removeSource(domain))
+                }
+              >
+                <X size={17} />
+              </Button>
+            </div>
+          ))}
+          {sources?.length === 0 && (
+            <p className="helper">No sources yet. Add a recipe site below.</p>
+          )}
+          {!!sources?.length && <FetchRecipes onFetched={onFetched} />}
+          <form
+            className="renameForm addSource"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              const form = e.currentTarget
+              const url = String(new FormData(form).get('url'))
+              setRefused('')
+              setChecking(true)
+              try {
+                const check = await householdApi.checkSource(url)
+                if (!check.allowed) {
+                  setRefused(
+                    `Couldn't add ${check.domain}: ${check.reason ?? 'its robots.txt does not allow automated importers'}.`,
+                  )
+                  return
+                }
+              } catch (e) {
+                setError(message(e))
                 return
+              } finally {
+                setChecking(false)
               }
-            } catch (e) {
-              setError(message(e))
-              return
-            } finally {
-              setChecking(false)
-            }
-            if (await act(() => householdApi.addSource(url))) form.reset()
-          }}
-        >
-          <input
-            name="url"
-            type="url"
-            aria-label="Recipe site address"
-            placeholder="https://example.com"
-            required
-            maxLength={300}
-            autoComplete="off"
-          />
-          <Button
-            className="primaryButton"
-            type="submit"
-            disabled={checking}
-            focusableWhenDisabled
+              if (await act(() => householdApi.addSource(url))) form.reset()
+            }}
           >
-            <Plus size={17} /> {checking ? 'Checking...' : 'Add'}
-          </Button>
-        </form>
+            <input
+              name="url"
+              type="url"
+              aria-label="Recipe site address"
+              placeholder="https://example.com"
+              required
+              maxLength={300}
+              autoComplete="off"
+            />
+            <Button
+              className="primaryButton"
+              type="submit"
+              disabled={checking}
+              focusableWhenDisabled
+            >
+              <Plus size={17} /> {checking ? 'Checking...' : 'Add'}
+            </Button>
+          </form>
+        </fieldset>
       </section>
       {refused && (
         <p role="alert" className="error sourceRefused">
@@ -663,6 +698,7 @@ export function ProfileScreen({
   exit: () => void
 }) {
   const me = useMe()
+  const online = useOnline()
   return (
     <main className="screen profileScreen">
       <header className="screenHeader">
@@ -672,6 +708,12 @@ export function ProfileScreen({
         </div>
       </header>
       <MeCard me={me} />
+      {!online && (
+        <OfflineNote>
+          You're offline. Your kitchen still works here; household and recipe
+          source changes need a connection.
+        </OfflineNote>
+      )}
       <RequestsInbox onJoined={onHouseholdChanged} />
       <HouseholdCard onLeft={onHouseholdChanged} />
       <SourcesCard onFetched={onCatalogChanged} />

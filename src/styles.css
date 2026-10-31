@@ -1901,3 +1901,20 @@ ul.changeList {
 .fetchRecipes .secondaryButton {
   margin-bottom: 4px;
 }
+/* Groups controls so they can be disabled together, without a frame. */
+.plainFieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.offlineNote {
+  margin: 0 0 16px;
+}
+.promptBar {
+  flex-wrap: wrap;
+}
+.promptBar .offlineNote {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+}

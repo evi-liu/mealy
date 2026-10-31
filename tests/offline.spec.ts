@@ -106,3 +106,29 @@ test('opens with the last household state when the server is unreachable', async
   await expect(page.locator('.pantryItem strong')).toContainText(['miso'])
   await expect(page.locator('.errorBanner')).toHaveCount(0)
 })
+
+test('Profile stays calm offline: last-known household, no fetch errors', async ({
+  page,
+}) => {
+  await page.goto('./#profile')
+  await expect(
+    page.getByRole('heading', { name: 'Test kitchen' }),
+  ).toBeVisible()
+  await goOffline(page)
+  // Leave and come back so every card loads again without a connection.
+  await page.getByRole('button', { name: 'Plan', exact: true }).click()
+  await page.getByRole('button', { name: 'Profile', exact: true }).click()
+  await expect(page.getByText(/You're offline/)).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Test kitchen' }),
+  ).toBeVisible()
+  await expect(page.getByText(/Failed to fetch|Load failed/)).toHaveCount(0)
+  await expect(page.locator('.error')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Rename' })).toBeDisabled()
+  await expect(
+    page.getByRole('button', { name: 'Leave household' }),
+  ).toBeDisabled()
+  await goOnline(page)
+  await expect(page.getByText(/You're offline/)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Rename' })).toBeEnabled()
+})
