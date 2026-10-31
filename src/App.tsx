@@ -975,10 +975,18 @@ function Recipes({
   function revealRow(id: string, open: boolean) {
     setRevealedRow((current) => (open ? id : current === id ? null : current))
   }
-  const favorites = state.recipes.filter((recipe) => isFavorite(recipe, state))
+  // Loved recipes lead the list; otherwise the saved order is kept.
+  const lovedFirst = (recipes: Recipe[]) =>
+    [...recipes].sort(
+      (a, b) =>
+        Number(state.loved.includes(b.id)) - Number(state.loved.includes(a.id)),
+    )
+  const favorites = lovedFirst(
+    state.recipes.filter((recipe) => isFavorite(recipe, state)),
+  )
   const terms = normalize(query).split(/\s+/).filter(Boolean)
   const visibleRecipes = searching
-    ? state.recipes.filter((recipe) => {
+    ? lovedFirst(state.recipes).filter((recipe) => {
         const searchable = normalize(
           [
             recipe.title,
